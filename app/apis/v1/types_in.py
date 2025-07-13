@@ -405,4 +405,128 @@ def validate_interaction_search_params(
         limit=limit,
         skip=skip,
         ascending=ascending
+    )
+
+
+class FuzzySearchParams(BaseModel):
+    """Validation model for fuzzy search parameters."""
+    
+    search_term: str = Field(
+        min_length=1,
+        max_length=200,
+        description="Patient name or partial name to search for"
+    )
+    
+    user_id: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Filter results by user ID"
+    )
+    
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of results"
+    )
+    
+    skip: int = Field(
+        default=0,
+        ge=0,
+        description="Number of results to skip"
+    )
+    
+    min_similarity: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Minimum similarity score threshold"
+    )
+    
+    include_score: bool = Field(
+        default=True,
+        description="Include similarity score in results"
+    )
+    
+    @validator('search_term')
+    def validate_search_term(cls, v):
+        """Validate search term."""
+        if not v or v.strip() == "":
+            raise ValueError("Search term cannot be empty")
+        return v.strip()
+    
+    @validator('user_id')
+    def validate_user_id(cls, v):
+        """Validate user_id format."""
+        if v is not None and v.strip() == "":
+            return None
+        return v
+
+
+class SuggestionSearchParams(BaseModel):
+    """Validation model for search suggestion parameters."""
+    
+    partial_term: str = Field(
+        min_length=1,
+        max_length=100,
+        description="Partial patient name for suggestions"
+    )
+    
+    user_id: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Filter suggestions by user ID"
+    )
+    
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum number of suggestions"
+    )
+    
+    @validator('partial_term')
+    def validate_partial_term(cls, v):
+        """Validate partial term."""
+        if not v or v.strip() == "":
+            raise ValueError("Partial term cannot be empty")
+        return v.strip()
+    
+    @validator('user_id')
+    def validate_user_id(cls, v):
+        """Validate user_id format."""
+        if v is not None and v.strip() == "":
+            return None
+        return v
+
+
+def validate_fuzzy_search_params(
+    search_term: str,
+    user_id: Optional[str] = None,
+    limit: int = 20,
+    skip: int = 0,
+    min_similarity: float = 0.3,
+    include_score: bool = True
+) -> FuzzySearchParams:
+    """Validate and return fuzzy search parameters."""
+    return FuzzySearchParams(
+        search_term=search_term,
+        user_id=user_id,
+        limit=limit,
+        skip=skip,
+        min_similarity=min_similarity,
+        include_score=include_score
+    )
+
+
+def validate_suggestion_search_params(
+    partial_term: str,
+    user_id: Optional[str] = None,
+    limit: int = 10
+) -> SuggestionSearchParams:
+    """Validate and return suggestion search parameters."""
+    return SuggestionSearchParams(
+        partial_term=partial_term,
+        user_id=user_id,
+        limit=limit
     ) 

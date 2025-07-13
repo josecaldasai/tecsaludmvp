@@ -1,7 +1,6 @@
 """Chat API router with streaming responses."""
 
 import json
-import asyncio
 from typing import List, Optional, Any
 from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse

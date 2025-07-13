@@ -184,6 +184,170 @@ class DocumentSearchResponse(BaseModel):
     )
 
 
+class FuzzyDocumentMatch(BaseModel):
+    """Document match with fuzzy search metadata."""
+    
+    # Document information (inherited from DocumentInfoResponse)
+    document_id: str = Field(
+        description="Unique document ID"
+    )
+    
+    processing_id: str = Field(
+        description="Processing ID for tracking"
+    )
+    
+    filename: str = Field(
+        description="Original filename"
+    )
+    
+    content_type: str = Field(
+        description="MIME type of the document"
+    )
+    
+    file_size: int = Field(
+        description="File size in bytes"
+    )
+    
+    user_id: Optional[str] = Field(
+        description="User ID who uploaded the document"
+    )
+    
+    storage_info: Dict[str, Any] = Field(
+        description="Storage information"
+    )
+    
+    extracted_text: str = Field(
+        description="Text extracted from the document"
+    )
+    
+    processing_status: str = Field(
+        description="Processing status"
+    )
+    
+    batch_info: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Batch information if document was processed as part of a batch"
+    )
+    
+    description: Optional[str] = Field(
+        default=None,
+        description="Document description"
+    )
+    
+    tags: List[str] = Field(
+        default=[],
+        description="Document tags"
+    )
+    
+    # Medical information
+    expediente: Optional[str] = Field(
+        default=None,
+        description="Número de expediente del paciente"
+    )
+    
+    nombre_paciente: Optional[str] = Field(
+        default=None,
+        description="Nombre completo del paciente"
+    )
+    
+    numero_episodio: Optional[str] = Field(
+        default=None,
+        description="Número de episodio médico"
+    )
+    
+    categoria: Optional[str] = Field(
+        default=None,
+        description="Categoría del documento médico (EMER, CONS, etc.)"
+    )
+    
+    medical_info_valid: Optional[bool] = Field(
+        default=None,
+        description="Indica si la información médica fue parseada correctamente"
+    )
+    
+    medical_info_error: Optional[str] = Field(
+        default=None,
+        description="Error en el parsing de información médica, si existe"
+    )
+    
+    created_at: datetime = Field(
+        description="Creation timestamp"
+    )
+    
+    updated_at: datetime = Field(
+        description="Last update timestamp"
+    )
+    
+    # Fuzzy search specific fields
+    similarity_score: float = Field(
+        description="Similarity score between search term and patient name (0.0 to 1.0)"
+    )
+    
+    match_type: str = Field(
+        description="Type of match (exact, prefix, substring, fuzzy)"
+    )
+
+
+class FuzzySearchResponse(BaseModel):
+    """Response schema for fuzzy patient search."""
+    
+    search_term: str = Field(
+        description="Original search term"
+    )
+    
+    normalized_term: str = Field(
+        description="Normalized search term used for matching"
+    )
+    
+    total_found: int = Field(
+        description="Total number of documents found"
+    )
+    
+    documents: List[FuzzyDocumentMatch] = Field(
+        description="List of matching documents with similarity scores"
+    )
+    
+    limit: int = Field(
+        description="Maximum number of results requested"
+    )
+    
+    skip: int = Field(
+        description="Number of results skipped"
+    )
+    
+    search_strategies_used: List[str] = Field(
+        description="List of search strategies used"
+    )
+    
+    min_similarity_threshold: float = Field(
+        description="Minimum similarity threshold applied"
+    )
+    
+    search_timestamp: str = Field(
+        description="Timestamp when search was performed"
+    )
+
+
+class SearchSuggestionsResponse(BaseModel):
+    """Response schema for search suggestions."""
+    
+    partial_term: str = Field(
+        description="Partial search term provided"
+    )
+    
+    suggestions: List[str] = Field(
+        description="List of suggested patient names"
+    )
+    
+    total_suggestions: int = Field(
+        description="Total number of suggestions returned"
+    )
+    
+    limit: int = Field(
+        description="Maximum number of suggestions requested"
+    )
+
+
 class BatchUploadResponse(BaseModel):
     """Response schema for batch document upload."""
     

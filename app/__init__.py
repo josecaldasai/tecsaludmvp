@@ -46,6 +46,10 @@ TAGS_METADATA = [
         "description": "Sistema de chat inteligente para preguntas sobre documentos médicos con Azure OpenAI",
     },
     {
+        "name": "fuzzy-search",
+        "description": "Búsqueda fuzzy de documentos por nombre de paciente con algoritmos de similitud",
+    },
+    {
         "name": "health",
         "description": "Endpoints para verificar el estado de la aplicación",
     },

@@ -244,6 +244,10 @@ app.include_router(documents_router, prefix="/api/v1/documents", tags=["document
 from app.apis.v1.chat_router import router as chat_router
 app.include_router(chat_router, prefix="/api/v1/chat", tags=["chat"])
 
+# Import and include fuzzy search router
+from app.apis.v1.fuzzy_search_router import router as fuzzy_search_router
+app.include_router(fuzzy_search_router, prefix="/api/v1/search", tags=["fuzzy-search"])
+
 
 # Root endpoint
 @app.get("/", tags=["health"])
