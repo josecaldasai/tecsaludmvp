@@ -1,0 +1,35 @@
+# Testing Requirements for TecSalud MVP
+# Instalar con: pip install -r requirements-test.txt
+
+# Framework de testing principal
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-xdist>=3.0.0  # Para ejecución paralela de tests
+pytest-cov>=4.0.0    # Para cobertura de código
+pytest-timeout>=2.1.0  # Para timeouts en tests
+
+# HTTP client para tests de API
+httpx>=0.24.0
+
+# Base de datos para limpieza en tests
+pymongo>=4.0.0
+
+# Requests para operaciones auxiliares
+requests>=2.28.0
+
+# Utilidades para tests
+pytest-mock>=3.10.0   # Para mocking
+pytest-html>=3.1.0    # Para reportes HTML
+pytest-json-report>=1.5.0  # Para reportes JSON
+
+# Dependencias del proyecto principal (si no están instaladas)
+fastapi>=0.100.0
+uvicorn>=0.20.0
+python-multipart>=0.0.5
+pydantic>=2.0.0
+
+# Opcional: Para tests de rendimiento
+pytest-benchmark>=4.0.0
+
+# Opcional: Para tests de seguridad
+pytest-security>=0.1.0 

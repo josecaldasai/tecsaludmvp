@@ -140,9 +140,8 @@ class InteractionManager:
             Interaction document or None if not found
         """
         try:
-            interaction = self.mongodb_manager.get_document(
-                query={"interaction_id": interaction_id},
-                collection_name=self.interactions_collection
+            interaction = self.interactions_collection.find_one(
+                {"interaction_id": interaction_id}
             )
             
             if interaction:
@@ -200,36 +199,40 @@ class InteractionManager:
         limit: int = 10
     ) -> List[Dict[str, Any]]:
         """
-        Get conversation history for a session (for context in new responses).
+        Get conversation history for a session in correct format for chat.
         
         Args:
             session_id: Session identifier
             limit: Maximum number of interactions to return
             
         Returns:
-            List of interactions with question/response pairs
+            List of conversations in format [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
         """
         try:
+            # Get recent interactions
             interactions = self.get_session_interactions(
                 session_id=session_id,
                 limit=limit,
-                ascending=True  # Chronological order
+                ascending=True  # Get chronological order
             )
             
-            # Format for chat context
-            conversation_history = []
+            # Convert to conversation format
+            conversation = []
             for interaction in interactions:
-                conversation_history.append({
-                    "question": interaction.get("question", ""),
-                    "response": interaction.get("response", ""),
-                    "timestamp": interaction.get("created_at")
-                })
+                if interaction.get("question"):
+                    conversation.append({
+                        "role": "user",
+                        "content": interaction["question"]
+                    })
+                if interaction.get("response"):
+                    conversation.append({
+                        "role": "assistant", 
+                        "content": interaction["response"]
+                    })
             
-            self.logger.info(
-                f"Retrieved conversation history with {len(conversation_history)} interactions for session {session_id}"
-            )
+            self.logger.info(f"Generated conversation history: {len(conversation)} messages")
             
-            return conversation_history
+            return conversation
             
         except Exception as err:
             self.logger.error(f"Failed to get conversation history for session {session_id}: {err}")
@@ -259,13 +262,10 @@ class InteractionManager:
             if document_id:
                 query["document_id"] = document_id
             
-            interactions = self.mongodb_manager.search_documents(
-                query=query,
-                limit=limit,
-                skip=skip,
-                sort=[("created_at", -1)],  # Most recent first
-                collection_name=self.interactions_collection
-            )
+            interactions = list(self.interactions_collection.find(query)
+                               .sort("created_at", -1)  # Most recent first
+                               .skip(skip)
+                               .limit(limit))
             
             self.logger.info(
                 f"Retrieved {len(interactions)} interactions for user {user_id}"
@@ -301,13 +301,10 @@ class InteractionManager:
             if user_id:
                 query["user_id"] = user_id
             
-            interactions = self.mongodb_manager.search_documents(
-                query=query,
-                limit=limit,
-                skip=skip,
-                sort=[("created_at", -1)],  # Most recent first
-                collection_name=self.interactions_collection
-            )
+            interactions = list(self.interactions_collection.find(query)
+                               .sort("created_at", -1)  # Most recent first
+                               .skip(skip)
+                               .limit(limit))
             
             self.logger.info(
                 f"Retrieved {len(interactions)} interactions for document {document_id}"
@@ -351,12 +348,9 @@ class InteractionManager:
             if session_id:
                 query["session_id"] = session_id
             
-            interactions = self.mongodb_manager.search_documents(
-                query=query,
-                limit=limit,
-                sort=[("score", {"$meta": "textScore"})],  # Sort by relevance
-                collection_name=self.interactions_collection
-            )
+            interactions = list(self.interactions_collection.find(query)
+                               .sort([("score", {"$meta": "textScore"})])  # Sort by relevance
+                               .limit(limit))
             
             self.logger.info(
                 f"Found {len(interactions)} interactions matching search: {search_query}"
@@ -385,12 +379,9 @@ class InteractionManager:
                 "user_id": user_id
             }
             
-            result = self.mongodb_manager.delete_documents(
-                query=query,
-                collection_name=self.interactions_collection
-            )
+            result = self.interactions_collection.delete_many(query)
+            count = result.deleted_count
             
-            count = result.get("deleted_count", 0)
             self.logger.info(f"Deleted {count} interactions for session {session_id}")
             
             return count
@@ -416,12 +407,9 @@ class InteractionManager:
                 "created_at": {"$lt": cutoff_date}
             }
             
-            result = self.mongodb_manager.delete_documents(
-                query=query,
-                collection_name=self.interactions_collection
-            )
+            result = self.interactions_collection.delete_many(query)
+            count = result.deleted_count
             
-            count = result.get("deleted_count", 0)
             self.logger.info(f"Cleaned up {count} old interactions")
             
             return count
@@ -462,11 +450,7 @@ class InteractionManager:
                 query["session_id"] = session_id
             
             # Get interactions
-            interactions = self.mongodb_manager.search_documents(
-                query=query,
-                limit=10000,  # Large limit for stats
-                collection_name=self.interactions_collection
-            )
+            interactions = list(self.interactions_collection.find(query).limit(10000))  # Large limit for stats
             
             # Calculate statistics
             total_interactions = len(interactions)
