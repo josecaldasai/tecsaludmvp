@@ -71,4 +71,10 @@ class ValidationException(BaseException):
 class FileUploadException(BaseException):
     """File upload related exception."""
 
+    pass
+
+
+class ChatException(BaseException):
+    """Chat and conversation related exception."""
+
     pass 

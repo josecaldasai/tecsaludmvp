@@ -19,7 +19,8 @@ from app.core.v1.exceptions import (
     ValidationException,
     StorageException,
     OCRException,
-    DatabaseException
+    DatabaseException,
+    ChatException
 )
 from app.settings.v1.settings import SETTINGS
 
@@ -180,6 +181,20 @@ async def database_exception_handler(request: Request, exc: DatabaseException):
     )
 
 
+@app.exception_handler(ChatException)
+async def chat_exception_handler(request: Request, exc: ChatException):
+    """Handle chat exceptions."""
+    logger.error(f"Chat exception: {exc.message}")
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error_code": "CHAT_ERROR",
+            "error_message": exc.message,
+            "timestamp": time.time()
+        }
+    )
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     """Handle HTTP exceptions."""
@@ -224,6 +239,10 @@ async def log_requests(request: Request, call_next):
 
 # Include routers
 app.include_router(documents_router, prefix="/api/v1/documents", tags=["documents"])
+
+# Import and include chat router
+from app.apis.v1.chat_router import router as chat_router
+app.include_router(chat_router, prefix="/api/v1/chat", tags=["chat"])
 
 
 # Root endpoint

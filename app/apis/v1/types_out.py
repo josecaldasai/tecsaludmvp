@@ -286,4 +286,215 @@ class ErrorResponse(BaseModel):
     
     timestamp: str = Field(
         description="Error timestamp"
+    )
+
+
+class ChatSessionResponse(BaseModel):
+    """Response schema for chat session."""
+    
+    model_config = {"validate_assignment": True}
+    
+    session_id: str = Field(
+        description="Unique session identifier"
+    )
+    
+    user_id: str = Field(
+        description="User ID who owns the session"
+    )
+    
+    document_id: str = Field(
+        description="Document ID for this session"
+    )
+    
+    session_name: str = Field(
+        description="Name of the chat session"
+    )
+    
+    is_active: bool = Field(
+        description="Whether the session is active"
+    )
+    
+    created_at: str = Field(
+        description="Session creation timestamp"
+    )
+    
+    last_interaction_at: str = Field(
+        description="Last interaction timestamp"
+    )
+    
+    interaction_count: int = Field(
+        description="Number of interactions in this session"
+    )
+
+
+class ChatInteractionResponse(BaseModel):
+    """Response schema for chat interaction."""
+    
+    model_config = {"validate_assignment": True}
+    
+    interaction_id: str = Field(
+        description="Unique interaction identifier"
+    )
+    
+    session_id: str = Field(
+        description="Session identifier"
+    )
+    
+    user_id: str = Field(
+        description="User identifier"
+    )
+    
+    document_id: str = Field(
+        description="Document identifier"
+    )
+    
+    question: str = Field(
+        description="User's question"
+    )
+    
+    response: str = Field(
+        description="Assistant's response"
+    )
+    
+    created_at: str = Field(
+        description="Interaction timestamp"
+    )
+    
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Additional interaction metadata"
+    )
+
+
+class ChatResponseStart(BaseModel):
+    """Response schema for chat response start (streaming)."""
+    
+    model_config = {"validate_assignment": True}
+    
+    interaction_id: str = Field(
+        description="Unique interaction identifier"
+    )
+    
+    session_id: str = Field(
+        description="Session identifier"
+    )
+    
+    question: str = Field(
+        description="User's question"
+    )
+    
+    started_at: str = Field(
+        description="Response start timestamp"
+    )
+
+
+class ChatStatsResponse(BaseModel):
+    """Response schema for chat statistics."""
+    
+    model_config = {"validate_assignment": True}
+    
+    period_days: int = Field(
+        description="Number of days analyzed"
+    )
+    
+    total_interactions: int = Field(
+        description="Total number of interactions"
+    )
+    
+    total_questions: int = Field(
+        description="Total number of questions"
+    )
+    
+    total_responses: int = Field(
+        description="Total number of responses"
+    )
+    
+    avg_question_length: float = Field(
+        description="Average question length in characters"
+    )
+    
+    avg_response_length: float = Field(
+        description="Average response length in characters"
+    )
+    
+    unique_sessions: int = Field(
+        description="Number of unique sessions"
+    )
+    
+    unique_documents: int = Field(
+        description="Number of unique documents"
+    )
+    
+    interactions_per_day: float = Field(
+        description="Average interactions per day"
+    )
+
+
+class SessionListResponse(BaseModel):
+    """Response schema for session list."""
+    
+    model_config = {"validate_assignment": True}
+    
+    sessions: List[ChatSessionResponse] = Field(
+        description="List of chat sessions"
+    )
+    
+    total_found: int = Field(
+        description="Total number of sessions found"
+    )
+    
+    limit: int = Field(
+        description="Limit applied to results"
+    )
+    
+    skip: int = Field(
+        description="Number of results skipped"
+    )
+
+
+class InteractionListResponse(BaseModel):
+    """Response schema for interaction list."""
+    
+    model_config = {"validate_assignment": True}
+    
+    interactions: List[ChatInteractionResponse] = Field(
+        description="List of chat interactions"
+    )
+    
+    total_found: int = Field(
+        description="Total number of interactions found"
+    )
+    
+    limit: int = Field(
+        description="Limit applied to results"
+    )
+    
+    skip: int = Field(
+        description="Number of results skipped"
+    )
+
+
+class SessionDeleteResponse(BaseModel):
+    """Response schema for session deletion."""
+    
+    model_config = {"validate_assignment": True}
+    
+    session_id: str = Field(
+        description="ID of the deleted session"
+    )
+    
+    deleted: bool = Field(
+        description="Whether the session was successfully deleted"
+    )
+    
+    interactions_deleted: int = Field(
+        description="Number of interactions deleted with the session"
+    )
+    
+    message: str = Field(
+        description="Deletion result message"
+    )
+    
+    deleted_timestamp: str = Field(
+        description="Timestamp when the session was deleted"
     ) 

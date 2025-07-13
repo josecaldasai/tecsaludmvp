@@ -148,6 +148,186 @@ class DocumentSearchParams(BaseModel):
         return v
 
 
+class ChatQuestionData(BaseModel):
+    """Validation model for chat question."""
+    
+    session_id: str = Field(
+        description="Session ID for the chat conversation"
+    )
+    
+    user_id: str = Field(
+        description="User ID making the question"
+    )
+    
+    document_id: str = Field(
+        description="Document ID to ask about"
+    )
+    
+    question: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="User's question about the document"
+    )
+    
+    @validator('session_id')
+    def validate_session_id(cls, v):
+        """Validate session_id format."""
+        if not v or not v.strip():
+            raise ValueError("Session ID cannot be empty")
+        return v.strip()
+    
+    @validator('user_id')
+    def validate_user_id(cls, v):
+        """Validate user_id format."""
+        if not v or not v.strip():
+            raise ValueError("User ID cannot be empty")
+        return v.strip()
+    
+    @validator('document_id')
+    def validate_document_id(cls, v):
+        """Validate document_id format."""
+        if not v or not v.strip():
+            raise ValueError("Document ID cannot be empty")
+        return v.strip()
+    
+    @validator('question')
+    def validate_question(cls, v):
+        """Validate question content."""
+        if not v or not v.strip():
+            raise ValueError("Question cannot be empty")
+        return v.strip()
+
+
+class CreateSessionData(BaseModel):
+    """Validation model for creating a new chat session."""
+    
+    user_id: str = Field(
+        description="User ID creating the session"
+    )
+    
+    document_id: str = Field(
+        description="Document ID for this session"
+    )
+    
+    session_name: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        description="Optional custom name for the session"
+    )
+    
+    @validator('user_id')
+    def validate_user_id(cls, v):
+        """Validate user_id format."""
+        if not v or not v.strip():
+            raise ValueError("User ID cannot be empty")
+        return v.strip()
+    
+    @validator('document_id')
+    def validate_document_id(cls, v):
+        """Validate document_id format."""
+        if not v or not v.strip():
+            raise ValueError("Document ID cannot be empty")
+        return v.strip()
+    
+    @validator('session_name')
+    def validate_session_name(cls, v):
+        """Validate session_name."""
+        if v is not None and v.strip() == "":
+            return None
+        return v
+
+
+class SessionSearchParams(BaseModel):
+    """Validation model for session search parameters."""
+    
+    user_id: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Filter sessions by user ID"
+    )
+    
+    document_id: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Filter sessions by document ID"
+    )
+    
+    active_only: bool = Field(
+        default=True,
+        description="Only return active sessions"
+    )
+    
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of results"
+    )
+    
+    skip: int = Field(
+        default=0,
+        ge=0,
+        description="Number of results to skip"
+    )
+    
+    @validator('user_id')
+    def validate_user_id(cls, v):
+        """Validate user_id format."""
+        if v is not None and v.strip() == "":
+            return None
+        return v
+    
+    @validator('document_id')
+    def validate_document_id(cls, v):
+        """Validate document_id format."""
+        if v is not None and v.strip() == "":
+            return None
+        return v
+
+
+class InteractionSearchParams(BaseModel):
+    """Validation model for interaction search parameters."""
+    
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Filter by session ID"
+    )
+    
+    user_id: Optional[str] = Field(
+        default=None,
+        description="Filter by user ID"
+    )
+    
+    document_id: Optional[str] = Field(
+        default=None,
+        description="Filter by document ID"
+    )
+    
+    search_query: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description="Text search query"
+    )
+    
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of results"
+    )
+    
+    skip: int = Field(
+        default=0,
+        ge=0,
+        description="Number of results to skip"
+    )
+    
+    ascending: bool = Field(
+        default=True,
+        description="Sort order by creation time"
+    )
+
+
 # Dependency functions for FastAPI
 def validate_upload_data(
     user_id: Optional[str] = None,
@@ -187,4 +367,42 @@ def validate_search_params(
         batch_id=batch_id,
         limit=limit,
         skip=skip
+    )
+
+
+def validate_session_search_params(
+    user_id: Optional[str] = None,
+    document_id: Optional[str] = None,
+    active_only: bool = True,
+    limit: int = 20,
+    skip: int = 0
+) -> SessionSearchParams:
+    """Validate and return session search parameters."""
+    return SessionSearchParams(
+        user_id=user_id,
+        document_id=document_id,
+        active_only=active_only,
+        limit=limit,
+        skip=skip
+    )
+
+
+def validate_interaction_search_params(
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    document_id: Optional[str] = None,
+    search_query: Optional[str] = None,
+    limit: int = 20,
+    skip: int = 0,
+    ascending: bool = True
+) -> InteractionSearchParams:
+    """Validate and return interaction search parameters."""
+    return InteractionSearchParams(
+        session_id=session_id,
+        user_id=user_id,
+        document_id=document_id,
+        search_query=search_query,
+        limit=limit,
+        skip=skip,
+        ascending=ascending
     ) 

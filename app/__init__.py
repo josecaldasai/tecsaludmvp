@@ -42,6 +42,10 @@ TAGS_METADATA = [
         "description": "Operaciones relacionadas con la carga y procesamiento de documentos médicos",
     },
     {
+        "name": "chat", 
+        "description": "Sistema de chat inteligente para preguntas sobre documentos médicos con Azure OpenAI",
+    },
+    {
         "name": "health",
         "description": "Endpoints para verificar el estado de la aplicación",
     },
