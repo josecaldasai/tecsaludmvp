@@ -23,6 +23,17 @@ class AzureSettings(BaseSettings):
         ..., description="Azure Document Intelligence API key"
     )
 
+    # Azure Speech Services
+    AZURE_SPEECH_KEY: str = Field(
+        ..., description="Azure Speech Services API key"
+    )
+    AZURE_SPEECH_REGION: str = Field(
+        default="eastus", description="Azure Speech Services region"
+    )
+    AZURE_SPEECH_ENDPOINT: str = Field(
+        default="", description="Azure Speech Services endpoint URL"
+    )
+
     # Azure Active Directory (opcional para autenticación)
     AZURE_TENANT_ID: str = Field(
         default="", description="Azure Active Directory tenant ID"

@@ -661,4 +661,72 @@ class SessionDeleteResponse(BaseModel):
     
     deleted_timestamp: str = Field(
         description="Timestamp when the session was deleted"
+    )
+
+
+class AzureSpeechTokenResponse(BaseModel):
+    """Response schema for Azure Speech token."""
+    
+    model_config = {"validate_assignment": True}
+    
+    access_token: str = Field(
+        description="Azure Speech Services access token"
+    )
+    
+    token_type: str = Field(
+        description="Type of token (Bearer)"
+    )
+    
+    expires_in: int = Field(
+        description="Token expiration time in seconds"
+    )
+    
+    region: str = Field(
+        description="Azure Speech Services region"
+    )
+    
+    issued_at: str = Field(
+        description="Timestamp when token was issued"
+    )
+
+
+class AzureStorageTokenResponse(BaseModel):
+    """Response schema for Azure Storage token."""
+    
+    model_config = {"validate_assignment": True}
+    
+    sas_token: str = Field(
+        description="Azure Storage SAS token"
+    )
+    
+    container_url: str = Field(
+        description="Complete container URL with SAS token"
+    )
+    
+    base_url: str = Field(
+        description="Base URL for the storage account"
+    )
+    
+    container_name: str = Field(
+        description="Name of the storage container"
+    )
+    
+    account_name: str = Field(
+        description="Storage account name"
+    )
+    
+    expires_at: str = Field(
+        description="Token expiration timestamp (ISO format)"
+    )
+    
+    permissions: str = Field(
+        description="Token permissions (e.g., 'rl' for read and list)"
+    )
+    
+    resource_type: str = Field(
+        description="Resource type (container)"
+    )
+    
+    issued_at: str = Field(
+        description="Timestamp when token was issued"
     ) 

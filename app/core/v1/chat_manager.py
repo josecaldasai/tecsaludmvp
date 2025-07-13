@@ -8,7 +8,7 @@ from openai import AsyncAzureOpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 import tiktoken
 
-from app.env.v1.environment import env_manager
+from app.settings.v1.openai import OpenAISettings
 from app.core.v1.exceptions import ChatException
 from app.core.v1.log_manager import LogManager
 
@@ -23,21 +23,21 @@ class ChatManager:
         self.logger = LogManager(__name__)
         
         # Get OpenAI configuration
-        config = env_manager.get_openai_config()
+        openai_settings = OpenAISettings()
         
         # Initialize Azure OpenAI client
         self.client = AsyncAzureOpenAI(
-            api_key=config["azure_openai_api_key"],
+            api_key=openai_settings.AZURE_OPENAI_API_KEY,
             api_version="2024-10-21",
-            azure_endpoint=config["azure_openai_endpoint"]
+            azure_endpoint=openai_settings.AZURE_OPENAI_ENDPOINT
         )
         
         # Chat configuration
-        self.chat_model = config["chat_model"]
-        self.max_tokens = config["max_tokens"]
-        self.temperature = config["temperature"]
-        self.max_conversation_history = config["max_conversation_history"]
-        self.context_window_size = config["context_window_size"]
+        self.chat_model = openai_settings.CHAT_MODEL
+        self.max_tokens = openai_settings.MAX_TOKENS
+        self.temperature = openai_settings.TEMPERATURE
+        self.max_conversation_history = openai_settings.MAX_CONVERSATION_HISTORY
+        self.context_window_size = openai_settings.CONTEXT_WINDOW_SIZE
         
         # Initialize tiktoken encoder for token counting
         try:

@@ -50,6 +50,10 @@ TAGS_METADATA = [
         "description": "Búsqueda fuzzy de documentos por nombre de paciente con algoritmos de similitud",
     },
     {
+        "name": "tokens",
+        "description": "Tokens de autenticación para Azure Speech Services y Azure Storage",
+    },
+    {
         "name": "health",
         "description": "Endpoints para verificar el estado de la aplicación",
     },
