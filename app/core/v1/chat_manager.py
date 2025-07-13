@@ -100,7 +100,7 @@ Responde de manera útil y precisa a las preguntas del usuario sobre este docume
         
         Args:
             system_prompt: System prompt with document context
-            conversation_history: Previous conversation messages
+            conversation_history: Previous conversation messages in format [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
             user_question: Current user question
             
         Returns:
@@ -108,12 +108,18 @@ Responde de manera útil y precisa a las preguntas del usuario sobre este docume
         """
         messages = [{"role": "system", "content": system_prompt}]
         
-        # Add conversation history (limit to max_conversation_history)
-        recent_history = conversation_history[-self.max_conversation_history:] if conversation_history else []
+        # Add conversation history (limit to max_conversation_history * 2 for user+assistant pairs)
+        # Since max_conversation_history refers to interaction pairs, we need to multiply by 2 for individual messages
+        max_history_messages = self.max_conversation_history * 2
+        recent_history = conversation_history[-max_history_messages:] if conversation_history else []
         
-        for interaction in recent_history:
-            messages.append({"role": "user", "content": interaction.get("question", "")})
-            messages.append({"role": "assistant", "content": interaction.get("response", "")})
+        # Add conversation history directly (it's already in the correct format)
+        for message in recent_history:
+            if message.get("role") in ["user", "assistant"] and message.get("content"):
+                messages.append({
+                    "role": message["role"],
+                    "content": message["content"]
+                })
         
         # Add current user question
         messages.append({"role": "user", "content": user_question})
