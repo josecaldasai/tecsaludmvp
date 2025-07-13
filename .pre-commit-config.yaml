@@ -1,0 +1,234 @@
+# Pre-commit configuration for TecSalud Chatbot Document Processing API
+# See https://pre-commit.com for more information
+
+repos:
+  # Built-in pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+        description: Trim trailing whitespace
+      - id: end-of-file-fixer
+        description: Ensure files end with newline
+      - id: check-yaml
+        description: Check YAML syntax
+      - id: check-json
+        description: Check JSON syntax
+      - id: check-toml
+        description: Check TOML syntax
+      - id: check-xml
+        description: Check XML syntax
+      - id: check-merge-conflict
+        description: Check for merge conflicts
+      - id: check-case-conflict
+        description: Check for case conflicts
+      - id: check-docstring-first
+        description: Check docstring is first
+      - id: check-executables-have-shebangs
+        description: Check that executables have shebangs
+      - id: check-shebang-scripts-are-executable
+        description: Check that scripts with shebangs are executable
+      - id: fix-byte-order-marker
+        description: Remove UTF-8 byte order marker
+      - id: mixed-line-ending
+        description: Replace mixed line endings
+      - id: check-added-large-files
+        description: Check for large files
+        args: ['--maxkb=1000']
+      - id: debug-statements
+        description: Check for debugger imports and breakpoints
+      - id: name-tests-test
+        description: Check that test files are named correctly
+        args: ['--pytest-test-first']
+
+  # Python code formatting with Black
+  - repo: https://github.com/psf/black
+    rev: 23.11.0
+    hooks:
+      - id: black
+        description: Format Python code with Black
+        language_version: python3.11
+        args: [--line-length=88, --target-version=py311]
+
+  # Import sorting with isort
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        description: Sort Python imports
+        args: [--profile=black, --line-length=88, --multi-line=3]
+
+  # Linting with flake8
+  - repo: https://github.com/PyCQA/flake8
+    rev: 6.1.0
+    hooks:
+      - id: flake8
+        description: Lint Python code with flake8
+        additional_dependencies:
+          - flake8-docstrings
+          - flake8-import-order
+          - flake8-bugbear
+          - flake8-comprehensions
+          - flake8-simplify
+        args:
+          - --max-line-length=88
+          - --extend-ignore=E203,W503,E501
+          - --max-complexity=10
+          - --docstring-convention=google
+
+  # Type checking with mypy
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.7.1
+    hooks:
+      - id: mypy
+        description: Type check Python code with mypy
+        additional_dependencies:
+          - types-requests
+          - types-PyYAML
+          - types-python-dateutil
+          - types-redis
+          - types-setuptools
+        args:
+          - --ignore-missing-imports
+          - --follow-imports=silent
+          - --warn-redundant-casts
+          - --warn-unused-ignores
+          - --disallow-any-generics
+          - --check-untyped-defs
+          - --no-implicit-reexport
+          - --disallow-untyped-defs
+
+  # Security checks with bandit
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.5
+    hooks:
+      - id: bandit
+        description: Security linting with bandit
+        args: ['-r', '.', '-f', 'json']
+        exclude: tests/
+
+  # Dependency security scanning
+  - repo: https://github.com/PyCQA/safety
+    rev: 2.3.4
+    hooks:
+      - id: safety
+        description: Check for known security vulnerabilities
+        args: [--full-report]
+
+  # Documentation linting
+  - repo: https://github.com/pycqa/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        description: Check docstring style
+        args: [--convention=google]
+
+  # Upgrade syntax with pyupgrade
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.15.0
+    hooks:
+      - id: pyupgrade
+        description: Upgrade Python syntax
+        args: [--py311-plus]
+
+  # Remove unused imports and variables
+  - repo: https://github.com/PyCQA/autoflake
+    rev: v2.2.1
+    hooks:
+      - id: autoflake
+        description: Remove unused imports and variables
+        args:
+          - --in-place
+          - --remove-all-unused-imports
+          - --remove-unused-variables
+          - --remove-duplicate-keys
+          - --ignore-init-module-imports
+
+  # Check for common mistakes
+  - repo: https://github.com/asottile/yesqa
+    rev: v1.5.0
+    hooks:
+      - id: yesqa
+        description: Remove unnecessary noqa comments
+
+  # Dockerfile linting
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.1-beta
+    hooks:
+      - id: hadolint-docker
+        description: Lint Dockerfile
+        entry: hadolint
+
+  # YAML linting
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.33.0
+    hooks:
+      - id: yamllint
+        description: Lint YAML files
+        args: [--format, parsable, --strict]
+
+  # Shell script linting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.9.0.6
+    hooks:
+      - id: shellcheck
+        description: Lint shell scripts
+
+  # Markdown linting
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.37.0
+    hooks:
+      - id: markdownlint
+        description: Lint Markdown files
+        args: [--fix]
+
+  # SQL formatting
+  - repo: https://github.com/sqlfluff/sqlfluff
+    rev: 2.3.5
+    hooks:
+      - id: sqlfluff-lint
+        description: Lint SQL files
+      - id: sqlfluff-fix
+        description: Fix SQL files
+
+  # Requirements.txt sorting
+  - repo: https://github.com/asottile/reorder_python_imports
+    rev: v3.12.0
+    hooks:
+      - id: reorder-python-imports
+        description: Sort Python imports
+        args: [--py311-plus]
+
+  # Check for AWS credentials
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        description: Detect secrets in code
+        args: [--baseline, .secrets.baseline]
+
+  # Conventional commits
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.0.0
+    hooks:
+      - id: conventional-pre-commit
+        description: Check commit message format
+        stages: [commit-msg]
+
+# Configuration
+default_stages: [commit]
+fail_fast: false
+minimum_pre_commit_version: 3.0.0
+
+# CI configuration
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit.com hooks
+
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false 

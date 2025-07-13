@@ -1,0 +1,133 @@
+# FastAPI and web framework dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+gunicorn==21.2.0
+python-multipart==0.0.6
+
+# Pydantic and settings management
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Azure dependencies
+azure-storage-blob==12.19.0
+azure-ai-documentintelligence==1.0.0b1
+azure-core==1.29.5
+azure-identity==1.15.0
+
+# MongoDB dependencies
+pymongo==4.6.0
+motor==3.3.2
+
+# Authentication and security
+PyJWT==2.8.0
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+
+# HTTP client
+httpx==0.25.2
+requests==2.31.0
+
+# Date and time handling
+python-dateutil==2.8.2
+
+# Environment and configuration
+python-dotenv==1.0.0
+
+# Logging and monitoring
+structlog==23.2.0
+
+# File type detection
+python-magic==0.4.27
+
+# Data validation and serialization
+marshmallow==3.20.1
+
+# Async support
+asyncio==3.4.3
+aiofiles==23.2.1
+
+# Testing dependencies (for development)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+httpx==0.25.2
+
+# Code quality and formatting
+black==23.11.0
+flake8==6.1.0
+isort==5.12.0
+mypy==1.7.1
+
+# Pre-commit hooks
+pre-commit==3.6.0
+
+# Development utilities
+watchdog==3.0.0
+
+# Performance monitoring
+psutil==5.9.6
+
+# JSON handling
+orjson==3.9.10
+
+# UUID generation
+uuid==1.30
+
+# Regular expressions
+regex==2023.10.3
+
+# Time zone handling
+pytz==2023.3
+
+# Cryptography
+cryptography==41.0.7
+
+# CORS support (included in FastAPI but explicit for clarity)
+# fastapi already includes starlette which has CORS support
+
+# Database utilities
+sqlalchemy==2.0.23  # For potential future SQL database support
+
+# Caching (optional, for future use)
+redis==5.0.1
+
+# Task queue (optional, for future async processing)
+celery==5.3.4
+
+# Email sending (optional, for notifications)
+sendgrid==6.10.0
+
+# PDF processing (optional, for advanced document handling)
+PyPDF2==3.0.1
+pdfplumber==0.10.3
+
+# Image processing (optional, for image document handling)
+Pillow==10.1.0
+
+# Excel file support (optional)
+openpyxl==3.1.2
+pandas==2.1.3
+
+# Word document support (optional)
+python-docx==1.1.0
+
+# Markdown support (optional)
+markdown==3.5.1
+
+# XML processing
+lxml==4.9.3
+
+# Configuration validation
+cerberus==1.3.5
+
+# Rate limiting
+slowapi==0.1.9
+
+# Health checks
+healthcheck==1.3.3
+
+# OpenAPI documentation
+openapi-core==0.18.2
+
+# Swagger UI customization
+swagger-ui-bundle==0.0.9 
