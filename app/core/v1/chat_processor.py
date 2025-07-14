@@ -21,7 +21,8 @@ from app.core.v1.exceptions import (
     SessionCreationFailedException,
     DatabaseConnectionException,
     DatabaseException,
-    DocumentProcessorException
+    DocumentProcessorException,
+    UserDocumentMismatchException
 )
 from app.core.v1.log_manager import LogManager
 
@@ -125,7 +126,8 @@ class ChatProcessor:
                     request_id=request_id,
                     document_id=validated_document_id,
                     processing_status=document.get("processing_status"),
-                    filename=document.get("filename")
+                    filename=document.get("filename"),
+                    document_user_id=document.get("user_id")
                 )
                 
             except DocumentProcessorException as err:
@@ -140,7 +142,45 @@ class ChatProcessor:
                     f"Please verify the document exists and try again."
                 ) from err
             
-            # Step 3: Check document status and readiness
+            # Step 3: Verify user authorization to access this document
+            document_user_id = document.get("user_id")
+            
+            self.logger.info(
+                "Validating user authorization",
+                request_id=request_id,
+                user_id=validated_user_id,
+                document_id=validated_document_id,
+                document_user_id=document_user_id,
+                user_ids_match=(document_user_id == validated_user_id)
+            )
+            
+            if document_user_id and document_user_id != validated_user_id:
+                self.logger.error(
+                    "User not authorized to access document - USER_ID_MISMATCH",
+                    request_id=request_id,
+                    user_id=validated_user_id,
+                    document_id=validated_document_id,
+                    document_user_id=document_user_id,
+                    error_type="USER_DOCUMENT_MISMATCH"
+                )
+                
+                error_msg = (
+                    f"User '{validated_user_id}' is not authorized to create a chat session with document '{validated_document_id}'. "
+                    f"Document belongs to user '{document_user_id}'. Only the document owner can create chat sessions."
+                )
+                
+                self.logger.error(f"Raising UserDocumentMismatchException: {error_msg}")
+                
+                raise UserDocumentMismatchException(error_msg)
+            
+            self.logger.info(
+                "User authorization validated successfully",
+                request_id=request_id,
+                user_id=validated_user_id,
+                document_id=validated_document_id
+            )
+            
+            # Step 4: Check document status and readiness
             processing_status = document.get("processing_status", "unknown")
             
             if processing_status == "processing":
@@ -159,7 +199,7 @@ class ChatProcessor:
                     f"Status: {processing_status}. Expected status: completed."
                 )
             
-            # Step 4: Check document has extracted text content
+            # Step 5: Check document has extracted text content
             extracted_text = document.get("extracted_text", "")
             if not extracted_text or not extracted_text.strip():
                 raise DocumentHasNoContentException(
@@ -167,13 +207,13 @@ class ChatProcessor:
                     f"Cannot create chat session for documents without extracted text."
                 )
             
-            # Step 5: Check user session limits (optional - can be configured)
+            # Step 6: Check user session limits (optional - can be configured)
             # For now, we'll skip this but structure is ready for implementation
             # user_session_count = self.session_manager.count_user_sessions(validated_user_id, active_only=True)
             # if user_session_count >= MAX_SESSIONS_PER_USER:
             #     raise SessionLimitExceededException(...)
             
-            # Step 6: Create the session
+            # Step 7: Create the session
             try:
                 session = self.session_manager.create_session(
                     user_id=validated_user_id,
@@ -230,7 +270,8 @@ class ChatProcessor:
             DocumentHasNoContentException,
             SessionLimitExceededException,
             SessionCreationFailedException,
-            DatabaseConnectionException
+            DatabaseConnectionException,
+            UserDocumentMismatchException
         ):
             # Re-raise specific exceptions without wrapping
             raise
@@ -424,33 +465,52 @@ class ChatProcessor:
     def get_user_sessions(
         self,
         user_id: str,
+        document_id: Optional[str] = None,
         active_only: bool = True,
         limit: int = 20,
         skip: int = 0
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
-        Get user's chat sessions.
+        Get user's chat sessions with optional document filtering and pagination metadata.
         
         Args:
             user_id: User identifier
+            document_id: Optional document ID to filter by
             active_only: Only return active sessions
             limit: Maximum number of sessions
             skip: Number of sessions to skip
             
         Returns:
-            List of sessions
+            Dict containing sessions and pagination metadata
         """
         try:
-            sessions = self.session_manager.get_user_sessions(
+            # Use the new search_user_sessions method that handles pagination correctly
+            result = self.session_manager.search_user_sessions(
                 user_id=user_id,
+                document_id=document_id,
                 active_only=active_only,
                 limit=limit,
                 skip=skip
             )
             
-            self.logger.info(f"Retrieved {len(sessions)} sessions for user {user_id}")
+            sessions = result["sessions"]
+            total_found = result["total_found"]
             
-            return sessions
+            self.logger.info(
+                f"Retrieved {len(sessions)} of {total_found} sessions for user {user_id}",
+                document_id=document_id,
+                active_only=active_only,
+                limit=limit,
+                skip=skip
+            )
+            
+            # Return complete information similar to DocumentProcessor
+            return {
+                "sessions": sessions,
+                "total_found": total_found,
+                "limit": limit,
+                "skip": skip
+            }
             
         except Exception as err:
             self.logger.error(f"Failed to get user sessions: {err}")

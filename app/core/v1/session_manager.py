@@ -186,6 +186,105 @@ class SessionManager:
         except Exception as err:
             self.logger.error(f"Failed to get sessions for user {user_id}: {err}")
             raise ChatException(f"Failed to retrieve user sessions: {err}") from err
+
+    def count_user_sessions(
+        self,
+        user_id: str,
+        document_id: Optional[str] = None,
+        active_only: bool = True
+    ) -> int:
+        """
+        Count total sessions for a user with optional filtering.
+        
+        Args:
+            user_id: User identifier
+            document_id: Optional document filter
+            active_only: Only count active sessions
+            
+        Returns:
+            Total count of matching sessions
+        """
+        try:
+            query = {"user_id": user_id}
+            
+            if active_only:
+                query["is_active"] = True
+                
+            if document_id:
+                query["document_id"] = document_id
+            
+            total_count = self.sessions_collection.count_documents(query)
+            
+            self.logger.info(
+                f"Counted {total_count} sessions for user {user_id}",
+                document_id=document_id,
+                active_only=active_only
+            )
+            
+            return total_count
+            
+        except Exception as err:
+            self.logger.error(f"Failed to count sessions for user {user_id}: {err}")
+            raise ChatException(f"Failed to count user sessions: {err}") from err
+
+    def search_user_sessions(
+        self,
+        user_id: str,
+        document_id: Optional[str] = None,
+        active_only: bool = True,
+        limit: int = 20,
+        skip: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Search sessions for a user with proper pagination (similar to DocumentProcessor).
+        
+        Args:
+            user_id: User identifier
+            document_id: Optional document filter
+            active_only: Only return active sessions
+            limit: Maximum number of sessions to return
+            skip: Number of sessions to skip
+            
+        Returns:
+            Dict containing sessions and pagination metadata
+        """
+        try:
+            # Build query with all filters
+            query = {"user_id": user_id}
+            
+            if active_only:
+                query["is_active"] = True
+                
+            if document_id:
+                query["document_id"] = document_id
+            
+            # Get total count of matching sessions (without limit/skip)
+            total_found = self.sessions_collection.count_documents(query)
+            
+            # Get sessions with pagination
+            sessions = list(self.sessions_collection.find(query)
+                          .sort("last_interaction_at", -1)
+                          .skip(skip)
+                          .limit(limit))
+            
+            self.logger.info(
+                f"Retrieved {len(sessions)} of {total_found} sessions for user {user_id}",
+                document_id=document_id,
+                active_only=active_only,
+                limit=limit,
+                skip=skip
+            )
+            
+            return {
+                "sessions": sessions,
+                "total_found": total_found,
+                "limit": limit,
+                "skip": skip
+            }
+            
+        except Exception as err:
+            self.logger.error(f"Failed to search sessions for user {user_id}: {err}")
+            raise ChatException(f"Failed to search user sessions: {err}") from err
     
     def get_document_sessions(
         self,

@@ -5,6 +5,7 @@ from typing import List, Optional, Any
 from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse
 from datetime import datetime
+import uuid
 
 from app.apis.v1.types_in import (
     ChatQuestionData,
@@ -34,7 +35,12 @@ from app.core.v1.exceptions import (
     DocumentHasNoContentException,
     SessionLimitExceededException,
     SessionCreationFailedException,
-    DatabaseConnectionException
+    DatabaseConnectionException,
+    UserIdRequiredException,
+    InvalidPaginationParametersException,
+    SessionListingFailedException,
+    InvalidDocumentIdFilterException,
+    UserDocumentMismatchException
 )
 from app.core.v1.log_manager import LogManager
 
@@ -173,6 +179,22 @@ async def create_chat_session(data: CreateSessionData):
             }
         )
         
+    except UserDocumentMismatchException as err:
+        logger.error(f"User document mismatch during session creation: {err}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "HTTP_500",
+                "error_message": {
+                    "error_code": "USER_NOT_AUTHORIZED",
+                    "message": "User is not authorized to create a chat session with this document. Only the document owner can create sessions.",
+                    "request_id": getattr(err, 'request_id', None),
+                    "suggestion": "Please verify that you are the owner of this document or contact the document owner for access."
+                },
+                "timestamp": datetime.now().timestamp()
+            }
+        )
+        
     except DocumentNotReadyException as err:
         logger.error(f"Document not ready for chat: {err}")
         raise HTTPException(
@@ -263,20 +285,29 @@ async def create_chat_session(data: CreateSessionData):
 @router.get("/sessions", response_model=SessionListResponse)
 async def list_chat_sessions(params: SessionSearchParams = Depends(get_session_search_params)):
     """
-    List chat sessions with filtering options.
+    List chat sessions with filtering options and comprehensive error handling.
+    
+    This endpoint provides enhanced validation and filtering capabilities for chat sessions,
+    including specific validation for user_id, document_id filtering, and pagination parameters.
     
     Args:
         params: Search parameters (user_id, document_id, active_only, limit, skip)
     
     Returns:
-        SessionListResponse: List of sessions
-    """
-    try:
-        if not params.user_id:
-            raise HTTPException(status_code=400, detail="user_id parameter is required")
+        SessionListResponse: List of sessions with metadata
         
+    Raises:
+        400 Bad Request: Invalid or missing parameters
+        404 Not Found: User has no sessions
+        500 Internal Server Error: Database or processing errors
+    """
+    # Generate request ID for tracking
+    request_id = f"list_sessions_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    
+    try:
         logger.info(
-            "Listing chat sessions",
+            "Starting session listing",
+            request_id=request_id,
             user_id=params.user_id,
             document_id=params.document_id,
             active_only=params.active_only,
@@ -284,14 +315,70 @@ async def list_chat_sessions(params: SessionSearchParams = Depends(get_session_s
             skip=params.skip
         )
         
-        sessions = chat_processor.get_user_sessions(
-            user_id=params.user_id,
-            active_only=params.active_only,
-            limit=params.limit,
-            skip=params.skip
-        )
+        # Step 1: Validate all parameters
+        try:
+            from app.core.v1.validators import SessionValidator
+            
+            validated_params = SessionValidator.validate_session_listing_parameters(
+                user_id=params.user_id,
+                document_id=params.document_id,
+                active_only=params.active_only,
+                limit=params.limit,
+                skip=params.skip
+            )
+            
+            logger.info(
+                "Session listing parameters validated successfully",
+                request_id=request_id,
+                validated_user_id=validated_params["user_id"],
+                validated_document_id=validated_params["document_id"]
+            )
+            
+        except (UserIdRequiredException, InvalidUserIdFormatException, InvalidDocumentIdFilterException, InvalidPaginationParametersException) as err:
+            logger.error(
+                "Invalid parameters for session listing",
+                request_id=request_id,
+                error=str(err),
+                user_id=params.user_id,
+                document_id=params.document_id
+            )
+            raise  # Re-raise the specific exception
         
-        # Convert to response format
+        # Step 2: Get sessions with filtering
+        try:
+            result = chat_processor.get_user_sessions(
+                user_id=validated_params["user_id"],
+                document_id=validated_params["document_id"],
+                active_only=validated_params["active_only"],
+                limit=validated_params["limit"],
+                skip=validated_params["skip"]
+            )
+            
+            sessions = result["sessions"]
+            total_found = result["total_found"]
+            
+            logger.info(
+                "Sessions retrieved successfully",
+                request_id=request_id,
+                sessions_count=len(sessions),
+                total_found=total_found,
+                user_id=validated_params["user_id"],
+                document_id=validated_params["document_id"]
+            )
+            
+        except ChatException as err:
+            logger.error(
+                "Failed to retrieve sessions",
+                request_id=request_id,
+                user_id=validated_params["user_id"],
+                document_id=validated_params["document_id"],
+                error=str(err)
+            )
+            raise SessionListingFailedException(
+                f"Failed to retrieve sessions: {str(err)}"
+            ) from err
+        
+        # Step 3: Convert to response format
         session_responses = []
         for session in sessions:
             session_responses.append(ChatSessionResponse(
@@ -305,23 +392,135 @@ async def list_chat_sessions(params: SessionSearchParams = Depends(get_session_s
                 interaction_count=session["interaction_count"]
             ))
         
+        # Step 4: Calculate pagination metadata
+        returned_count = len(session_responses)
+        current_page = (validated_params["skip"] // validated_params["limit"]) + 1
+        total_pages = (total_found + validated_params["limit"] - 1) // validated_params["limit"] if total_found > 0 else 1
+        has_next = (validated_params["skip"] + validated_params["limit"]) < total_found
+        has_prev = validated_params["skip"] > 0
+        
+        # Step 5: Build applied filters
+        applied_filters = {}
+        if validated_params["user_id"]:
+            applied_filters["user_id"] = validated_params["user_id"]
+        if validated_params["document_id"]:
+            applied_filters["document_id"] = validated_params["document_id"]
+        if validated_params["active_only"] is not None:
+            applied_filters["active_only"] = validated_params["active_only"]
+        
+        # Step 6: Build comprehensive response
         response = SessionListResponse(
             sessions=session_responses,
-            total_found=len(session_responses),
-            limit=params.limit,
-            skip=params.skip
+            total_found=total_found,
+            limit=validated_params["limit"],
+            skip=validated_params["skip"],
+            returned_count=returned_count,
+            has_next=has_next,
+            has_prev=has_prev,
+            current_page=current_page,
+            total_pages=total_pages,
+            applied_filters=applied_filters,
+            request_id=request_id,
+            search_timestamp=datetime.now().isoformat()
         )
         
-        logger.info(f"Retrieved {len(sessions)} chat sessions")
+        # Add request_id to response for tracking
+        response.request_id = request_id
+        
+        logger.info(
+            "Session listing completed successfully",
+            request_id=request_id,
+            total_sessions=len(sessions),
+            user_id=validated_params["user_id"]
+        )
         
         return response
         
-    except ChatException as err:
+    except UserIdRequiredException as err:
+        logger.error(f"User ID required: {err}")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "USER_ID_REQUIRED",
+                "message": str(err),
+                "request_id": request_id,
+                "suggestion": "Please provide a valid user_id parameter"
+            }
+        )
+        
+    except InvalidUserIdFormatException as err:
+        logger.error(f"Invalid user ID format: {err}")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "INVALID_USER_ID_FORMAT",
+                "message": str(err),
+                "request_id": request_id,
+                "suggestion": "Please provide a valid user_id with only alphanumeric characters, underscores, dots, and hyphens"
+            }
+        )
+        
+    except InvalidDocumentIdFilterException as err:
+        logger.error(f"Invalid document ID filter: {err}")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "INVALID_DOCUMENT_ID_FILTER",
+                "message": str(err),
+                "request_id": request_id,
+                "suggestion": "Please provide a valid document_id in MongoDB ObjectId format (24 hexadecimal characters)"
+            }
+        )
+        
+    except InvalidPaginationParametersException as err:
+        logger.error(f"Invalid pagination parameters: {err}")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "INVALID_PAGINATION_PARAMETERS",
+                "message": str(err),
+                "request_id": request_id,
+                "suggestion": "Please provide valid pagination parameters (limit: 1-100, skip: >=0)"
+            }
+        )
+        
+    except SessionListingFailedException as err:
         logger.error(f"Session listing failed: {err}")
-        raise HTTPException(status_code=400, detail=str(err))
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "SESSION_LISTING_FAILED",
+                "message": str(err),
+                "request_id": request_id,
+                "suggestion": "Please try again or contact support if the issue persists"
+            }
+        )
+        
+    except ChatException as err:
+        # Fallback for any other ChatException not specifically handled
+        logger.error(f"Session listing failed: {err}")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "SESSION_LISTING_ERROR",
+                "message": str(err),
+                "request_id": request_id,
+                "suggestion": "Please verify your parameters and try again"
+            }
+        )
+        
     except Exception as err:
-        logger.error(f"Unexpected error listing sessions: {err}")
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {err}")
+        # Unexpected errors
+        logger.error(f"Unexpected error in session listing: {err}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "INTERNAL_SERVER_ERROR",
+                "message": "An unexpected error occurred during session listing",
+                "request_id": request_id,
+                "suggestion": "Please try again or contact support if the issue persists"
+            }
+        )
 
 
 @router.post("/ask")

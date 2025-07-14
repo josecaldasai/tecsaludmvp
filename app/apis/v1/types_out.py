@@ -630,14 +630,16 @@ class ChatStatsResponse(BaseModel):
 
 
 class SessionListResponse(BaseModel):
-    """Response schema for session list."""
+    """Response schema for session list with enhanced pagination metadata."""
     
     model_config = {"validate_assignment": True}
     
+    # Results
     sessions: List[ChatSessionResponse] = Field(
         description="List of chat sessions"
     )
     
+    # Pagination metadata
     total_found: int = Field(
         description="Total number of sessions found"
     )
@@ -648,6 +650,40 @@ class SessionListResponse(BaseModel):
     
     skip: int = Field(
         description="Number of results skipped"
+    )
+    
+    returned_count: int = Field(
+        description="Actual number of sessions returned in this response"
+    )
+    
+    has_next: bool = Field(
+        description="Whether there are more results available"
+    )
+    
+    has_prev: bool = Field(
+        description="Whether there are previous results available"
+    )
+    
+    current_page: int = Field(
+        description="Current page number (1-based)"
+    )
+    
+    total_pages: int = Field(
+        description="Total number of pages available"
+    )
+    
+    # Query context
+    applied_filters: Dict[str, Any] = Field(
+        description="Filters that were applied to the search"
+    )
+    
+    request_id: Optional[str] = Field(
+        default=None,
+        description="Unique request identifier for tracking"
+    )
+    
+    search_timestamp: str = Field(
+        description="Timestamp when the search was performed"
     )
 
 

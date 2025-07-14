@@ -133,4 +133,36 @@ class SessionCreationFailedException(ChatException):
 class DatabaseConnectionException(ChatException):
     """Exception for database connection issues during session operations."""
     
+    pass
+
+
+# Specific Chat Session Listing Exceptions
+
+class UserIdRequiredException(ChatException):
+    """Exception when user_id parameter is required but not provided."""
+    
+    pass
+
+
+class InvalidPaginationParametersException(ChatException):
+    """Exception for invalid pagination parameters (limit, skip)."""
+    
+    pass
+
+
+class SessionListingFailedException(ChatException):
+    """Exception when session listing fails due to internal errors."""
+    
+    pass
+
+
+class InvalidDocumentIdFilterException(ChatException):
+    """Exception for invalid document ID format in session filtering."""
+    
+    pass 
+
+
+class UserDocumentMismatchException(ChatException):
+    """Exception when user_id doesn't match document owner during session creation."""
+    
     pass 

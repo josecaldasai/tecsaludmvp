@@ -8,7 +8,10 @@ from bson.errors import InvalidId
 from app.core.v1.exceptions import (
     ValidationException,
     InvalidDocumentIdFormatException,
-    InvalidUserIdFormatException
+    InvalidUserIdFormatException,
+    UserIdRequiredException,
+    InvalidPaginationParametersException,
+    InvalidDocumentIdFilterException
 )
 from app.core.v1.log_manager import LogManager
 
@@ -286,5 +289,161 @@ class SessionValidator:
             "user_id": validated_user_id,
             "document_id": validated_document_id,
             "session_name": validated_session_name
+        }
+    
+    @staticmethod
+    def validate_user_id_required(user_id: Optional[str]) -> str:
+        """
+        Validate that user_id is provided and has correct format for session listing.
+        
+        Args:
+            user_id: User ID to validate (may be None)
+            
+        Returns:
+            str: Validated user ID
+            
+        Raises:
+            UserIdRequiredException: If user_id is None or empty
+            InvalidUserIdFormatException: If user_id format is invalid
+        """
+        if user_id is None:
+            raise UserIdRequiredException("user_id parameter is required for session listing")
+        
+        if not isinstance(user_id, str):
+            raise InvalidUserIdFormatException("user_id must be a string")
+        
+        user_id = user_id.strip()
+        
+        if not user_id:
+            raise UserIdRequiredException("user_id cannot be empty or only whitespace")
+        
+        # Basic format validation (no special characters that could cause issues)
+        if not re.match(r'^[a-zA-Z0-9_.-]+$', user_id):
+            raise InvalidUserIdFormatException(
+                f"Invalid user_id format: '{user_id}'. "
+                f"Only alphanumeric characters, underscores, dots, and hyphens are allowed"
+            )
+        
+        if len(user_id) > 100:
+            raise InvalidUserIdFormatException(
+                f"user_id too long: '{user_id}'. Maximum length is 100 characters"
+            )
+        
+        return user_id
+    
+    @staticmethod
+    def validate_document_id_filter(document_id: Optional[str]) -> Optional[str]:
+        """
+        Validate document_id format for session filtering (optional parameter).
+        
+        Args:
+            document_id: Document ID to validate (may be None)
+            
+        Returns:
+            Optional[str]: Validated document ID or None
+            
+        Raises:
+            InvalidDocumentIdFilterException: If document_id format is invalid
+        """
+        if document_id is None:
+            return None
+        
+        if not isinstance(document_id, str):
+            raise InvalidDocumentIdFilterException("document_id must be a string")
+        
+        # Remove whitespace
+        document_id = document_id.strip()
+        
+        if not document_id:
+            return None  # Empty string is treated as None
+        
+        # Validate ObjectId format (24 hex characters)
+        if not re.match(r'^[a-f0-9]{24}$', document_id):
+            raise InvalidDocumentIdFilterException(
+                f"Invalid document_id format: '{document_id}'. "
+                f"Expected 24 hexadecimal characters (MongoDB ObjectId)"
+            )
+        
+        # Try to create ObjectId to ensure it's valid
+        try:
+            ObjectId(document_id)
+        except InvalidId:
+            raise InvalidDocumentIdFilterException(
+                f"Invalid document_id: '{document_id}' is not a valid MongoDB ObjectId"
+            )
+        
+        return document_id
+    
+    @staticmethod
+    def validate_pagination_parameters(limit: int, skip: int) -> Dict[str, int]:
+        """
+        Validate pagination parameters for session listing.
+        
+        Args:
+            limit: Maximum number of results
+            skip: Number of results to skip
+            
+        Returns:
+            Dict with validated pagination parameters
+            
+        Raises:
+            InvalidPaginationParametersException: If parameters are invalid
+        """
+        if not isinstance(limit, int) or limit < 1:
+            raise InvalidPaginationParametersException(
+                f"Invalid limit: {limit}. Must be a positive integer"
+            )
+        
+        if limit > 100:
+            raise InvalidPaginationParametersException(
+                f"Invalid limit: {limit}. Maximum allowed is 100"
+            )
+        
+        if not isinstance(skip, int) or skip < 0:
+            raise InvalidPaginationParametersException(
+                f"Invalid skip: {skip}. Must be a non-negative integer"
+            )
+        
+        return {
+            "limit": limit,
+            "skip": skip
+        }
+    
+    @staticmethod
+    def validate_session_listing_parameters(
+        user_id: Optional[str], 
+        document_id: Optional[str], 
+        active_only: bool,
+        limit: int,
+        skip: int
+    ) -> Dict[str, Any]:
+        """
+        Validate all parameters for session listing.
+        
+        Args:
+            user_id: User ID (required)
+            document_id: Document ID for filtering (optional)
+            active_only: Whether to return only active sessions
+            limit: Maximum number of results
+            skip: Number of results to skip
+            
+        Returns:
+            Dict with validated parameters
+            
+        Raises:
+            UserIdRequiredException: If user_id is missing
+            InvalidUserIdFormatException: If user_id format is invalid
+            InvalidDocumentIdFilterException: If document_id format is invalid
+            InvalidPaginationParametersException: If pagination parameters are invalid
+        """
+        validated_user_id = SessionValidator.validate_user_id_required(user_id)
+        validated_document_id = SessionValidator.validate_document_id_filter(document_id)
+        validated_pagination = SessionValidator.validate_pagination_parameters(limit, skip)
+        
+        return {
+            "user_id": validated_user_id,
+            "document_id": validated_document_id,
+            "active_only": active_only,
+            "limit": validated_pagination["limit"],
+            "skip": validated_pagination["skip"]
         } 
-        return session_id 
