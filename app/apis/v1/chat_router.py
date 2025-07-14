@@ -24,7 +24,18 @@ from app.apis.v1.types_out import (
     SessionDeleteResponse
 )
 from app.core.v1.chat_processor import ChatProcessor
-from app.core.v1.exceptions import ChatException
+from app.core.v1.exceptions import (
+    ChatException,
+    InvalidDocumentIdFormatException,
+    InvalidUserIdFormatException,
+    DocumentNotFoundException,
+    DocumentAccessDeniedException,
+    DocumentNotReadyException,
+    DocumentHasNoContentException,
+    SessionLimitExceededException,
+    SessionCreationFailedException,
+    DatabaseConnectionException
+)
 from app.core.v1.log_manager import LogManager
 
 # Initialize router
@@ -60,13 +71,25 @@ def get_interaction_search_params(
 @router.post("/sessions", response_model=ChatSessionResponse, status_code=201)
 async def create_chat_session(data: CreateSessionData):
     """
-    Create a new chat session for a document.
+    Create a new chat session for a document with comprehensive validation and error handling.
+    
+    This endpoint provides enhanced error handling for chat session creation,
+    including specific validation for document IDs, user IDs, document status,
+    and content availability.
     
     Args:
         data: Session creation data (user_id, document_id, session_name)
     
     Returns:
         ChatSessionResponse: Created session information
+        
+    Raises:
+        400 Bad Request: Invalid input data (user_id or document_id format)
+        403 Forbidden: User doesn't have access to document
+        404 Not Found: Document not found
+        409 Conflict: Document not ready, has no content, or user session limit exceeded
+        503 Service Unavailable: Database connection issues
+        500 Internal Server Error: Unexpected errors
     """
     try:
         logger.info(
@@ -96,17 +119,145 @@ async def create_chat_session(data: CreateSessionData):
         
         logger.info(
             "Chat session created successfully",
-            session_id=session["session_id"]
+            session_id=session["session_id"],
+            request_id=session.get("request_id")
         )
         
         return response
         
+    except InvalidUserIdFormatException as err:
+        logger.error(f"Invalid user ID format: {err}")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "INVALID_USER_ID_FORMAT",
+                "message": str(err),
+                "request_id": getattr(err, 'request_id', None),
+                "suggestion": "Please provide a valid user ID with only alphanumeric characters, underscores, dots, and hyphens"
+            }
+        )
+        
+    except InvalidDocumentIdFormatException as err:
+        logger.error(f"Invalid document ID format: {err}")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "INVALID_DOCUMENT_ID_FORMAT",
+                "message": str(err),
+                "request_id": getattr(err, 'request_id', None),
+                "suggestion": "Please provide a valid document ID in MongoDB ObjectId format (24 hexadecimal characters)"
+            }
+        )
+        
+    except DocumentNotFoundException as err:
+        logger.error(f"Document not found: {err}")
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "DOCUMENT_NOT_FOUND",
+                "message": str(err),
+                "request_id": getattr(err, 'request_id', None),
+                "suggestion": "Please verify the document ID exists and you have access to it"
+            }
+        )
+        
+    except DocumentAccessDeniedException as err:
+        logger.error(f"Document access denied: {err}")
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error_code": "DOCUMENT_ACCESS_DENIED",
+                "message": str(err),
+                "request_id": getattr(err, 'request_id', None),
+                "suggestion": "You don't have permission to access this document for chat sessions"
+            }
+        )
+        
+    except DocumentNotReadyException as err:
+        logger.error(f"Document not ready for chat: {err}")
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "DOCUMENT_NOT_READY",
+                "message": str(err),
+                "request_id": getattr(err, 'request_id', None),
+                "suggestion": "Please wait for document processing to complete or try with a different document"
+            }
+        )
+        
+    except DocumentHasNoContentException as err:
+        logger.error(f"Document has no content: {err}")
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "DOCUMENT_NO_CONTENT",
+                "message": str(err),
+                "request_id": getattr(err, 'request_id', None),
+                "suggestion": "Cannot create chat session for documents without extracted text content"
+            }
+        )
+        
+    except SessionLimitExceededException as err:
+        logger.error(f"Session limit exceeded: {err}")
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "SESSION_LIMIT_EXCEEDED",
+                "message": str(err),
+                "request_id": getattr(err, 'request_id', None),
+                "suggestion": "Please close some existing sessions before creating new ones"
+            }
+        )
+        
+    except DatabaseConnectionException as err:
+        logger.error(f"Database connection error: {err}")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "DATABASE_SERVICE_UNAVAILABLE",
+                "message": str(err),
+                "request_id": getattr(err, 'request_id', None),
+                "suggestion": "Please try again in a few moments"
+            }
+        )
+        
+    except SessionCreationFailedException as err:
+        logger.error(f"Session creation failed: {err}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "SESSION_CREATION_FAILED",
+                "message": str(err),
+                "request_id": getattr(err, 'request_id', None),
+                "suggestion": "Please try again or contact support if the issue persists"
+            }
+        )
+        
     except ChatException as err:
+        # Fallback for any other ChatException not specifically handled
         logger.error(f"Chat session creation failed: {err}")
-        raise HTTPException(status_code=400, detail=str(err))
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "CHAT_SESSION_ERROR",
+                "message": str(err),
+                "request_id": getattr(err, 'request_id', None),
+                "suggestion": "Please verify your input and try again"
+            }
+        )
+        
     except Exception as err:
+        # Unexpected errors
         logger.error(f"Unexpected error creating session: {err}")
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {err}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "INTERNAL_SERVER_ERROR",
+                "message": "An unexpected error occurred during session creation",
+                "request_id": None,
+                "suggestion": "Please try again or contact support if the issue persists"
+            }
+        )
 
 
 @router.get("/sessions", response_model=SessionListResponse)

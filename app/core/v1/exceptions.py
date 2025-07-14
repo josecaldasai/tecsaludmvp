@@ -77,4 +77,60 @@ class FileUploadException(BaseException):
 class ChatException(BaseException):
     """Chat and conversation related exception."""
 
+    pass
+
+
+# Specific Chat Session Creation Exceptions
+
+class InvalidDocumentIdFormatException(ChatException):
+    """Exception for invalid document ID format in chat sessions."""
+    
+    pass
+
+
+class InvalidUserIdFormatException(ChatException):
+    """Exception for invalid user ID format in chat sessions."""
+    
+    pass
+
+
+class DocumentNotFoundException(ChatException):
+    """Exception when document is not found for chat session."""
+    
+    pass
+
+
+class DocumentAccessDeniedException(ChatException):
+    """Exception when user doesn't have access to document."""
+    
+    pass
+
+
+class DocumentNotReadyException(ChatException):
+    """Exception when document is not ready for chat (still processing or failed)."""
+    
+    pass
+
+
+class DocumentHasNoContentException(ChatException):
+    """Exception when document has no extracted text content for chat."""
+    
+    pass
+
+
+class SessionLimitExceededException(ChatException):
+    """Exception when user exceeds maximum allowed sessions."""
+    
+    pass
+
+
+class SessionCreationFailedException(ChatException):
+    """Exception when session creation fails at database level."""
+    
+    pass
+
+
+class DatabaseConnectionException(ChatException):
+    """Exception for database connection issues during session operations."""
+    
     pass 

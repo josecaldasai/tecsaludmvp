@@ -8,8 +8,20 @@ from app.core.v1.chat_manager import ChatManager
 from app.core.v1.session_manager import SessionManager
 from app.core.v1.interaction_manager import InteractionManager
 from app.core.v1.document_processor import DocumentProcessor
+from app.core.v1.validators import SessionValidator
 from app.core.v1.exceptions import (
     ChatException,
+    InvalidDocumentIdFormatException,
+    InvalidUserIdFormatException,
+    DocumentNotFoundException,
+    DocumentAccessDeniedException,
+    DocumentNotReadyException,
+    DocumentHasNoContentException,
+    SessionLimitExceededException,
+    SessionCreationFailedException,
+    DatabaseConnectionException,
+    DatabaseException,
+    DocumentProcessorException
 )
 from app.core.v1.log_manager import LogManager
 
@@ -38,7 +50,7 @@ class ChatProcessor:
         session_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Create a new chat session.
+        Create a new chat session with comprehensive validation and error handling.
         
         Args:
             user_id: User creating the session
@@ -47,32 +59,196 @@ class ChatProcessor:
             
         Returns:
             Created session data
-        """
-        try:
-            # Verify document exists
-            document = self.document_processor.get_document_info(document_id)
-            if not document:
-                raise ChatException(f"Document not found: {document_id}")
             
-            # Create session
-            session = self.session_manager.create_session(
+        Raises:
+            InvalidUserIdFormatException: If user_id format is invalid
+            InvalidDocumentIdFormatException: If document_id format is invalid
+            DocumentNotFoundException: If document doesn't exist
+            DocumentNotReadyException: If document is not ready for chat
+            DocumentHasNoContentException: If document has no text content
+            SessionLimitExceededException: If user exceeds session limit
+            SessionCreationFailedException: If session creation fails
+            DatabaseConnectionException: If database connection fails
+        """
+        # Generate request ID for tracking
+        request_id = f"create_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        
+        try:
+            self.logger.info(
+                "Starting chat session creation",
+                request_id=request_id,
                 user_id=user_id,
                 document_id=document_id,
                 session_name=session_name
             )
             
-            self.logger.info(
-                "Chat session created successfully",
-                session_id=session["session_id"],
-                user_id=user_id,
-                document_id=document_id
-            )
+            # Step 1: Validate input data
+            try:
+                validated_data = SessionValidator.validate_session_creation_data(
+                    user_id=user_id,
+                    document_id=document_id,
+                    session_name=session_name
+                )
+                
+                validated_user_id = validated_data["user_id"]
+                validated_document_id = validated_data["document_id"]
+                validated_session_name = validated_data["session_name"]
+                
+                self.logger.info(
+                    "Session creation data validated successfully",
+                    request_id=request_id,
+                    validated_user_id=validated_user_id,
+                    validated_document_id=validated_document_id
+                )
+                
+            except (InvalidUserIdFormatException, InvalidDocumentIdFormatException) as err:
+                self.logger.error(
+                    "Invalid input data for session creation",
+                    request_id=request_id,
+                    user_id=user_id,
+                    document_id=document_id,
+                    error=str(err)
+                )
+                raise  # Re-raise the specific exception
             
-            return session
+            # Step 2: Verify document exists and get its information
+            try:
+                document = self.document_processor.get_document_info(validated_document_id)
+                if not document:
+                    raise DocumentNotFoundException(
+                        f"Document not found: {validated_document_id}. "
+                        f"Please verify the document ID is correct and the document exists."
+                    )
+                
+                self.logger.info(
+                    "Document found and retrieved",
+                    request_id=request_id,
+                    document_id=validated_document_id,
+                    processing_status=document.get("processing_status"),
+                    filename=document.get("filename")
+                )
+                
+            except DocumentProcessorException as err:
+                self.logger.error(
+                    "Error retrieving document information",
+                    request_id=request_id,
+                    document_id=validated_document_id,
+                    error=str(err)
+                )
+                raise DocumentNotFoundException(
+                    f"Unable to retrieve document information: {validated_document_id}. "
+                    f"Please verify the document exists and try again."
+                ) from err
+            
+            # Step 3: Check document status and readiness
+            processing_status = document.get("processing_status", "unknown")
+            
+            if processing_status == "processing":
+                raise DocumentNotReadyException(
+                    f"Document is still being processed: {validated_document_id}. "
+                    f"Please wait for processing to complete before creating a chat session."
+                )
+            elif processing_status == "error":
+                raise DocumentNotReadyException(
+                    f"Document processing failed: {validated_document_id}. "
+                    f"Cannot create chat session for documents with processing errors."
+                )
+            elif processing_status not in ["completed"]:
+                raise DocumentNotReadyException(
+                    f"Document is not ready for chat: {validated_document_id}. "
+                    f"Status: {processing_status}. Expected status: completed."
+                )
+            
+            # Step 4: Check document has extracted text content
+            extracted_text = document.get("extracted_text", "")
+            if not extracted_text or not extracted_text.strip():
+                raise DocumentHasNoContentException(
+                    f"Document has no text content for chat: {validated_document_id}. "
+                    f"Cannot create chat session for documents without extracted text."
+                )
+            
+            # Step 5: Check user session limits (optional - can be configured)
+            # For now, we'll skip this but structure is ready for implementation
+            # user_session_count = self.session_manager.count_user_sessions(validated_user_id, active_only=True)
+            # if user_session_count >= MAX_SESSIONS_PER_USER:
+            #     raise SessionLimitExceededException(...)
+            
+            # Step 6: Create the session
+            try:
+                session = self.session_manager.create_session(
+                    user_id=validated_user_id,
+                    document_id=validated_document_id,
+                    session_name=validated_session_name
+                )
+                
+                self.logger.info(
+                    "Chat session created successfully",
+                    request_id=request_id,
+                    session_id=session["session_id"],
+                    user_id=validated_user_id,
+                    document_id=validated_document_id,
+                    session_name=validated_session_name
+                )
+                
+                # Add request_id to session data for tracking
+                session["request_id"] = request_id
+                
+                return session
+                
+            except DatabaseException as err:
+                self.logger.error(
+                    "Database error during session creation",
+                    request_id=request_id,
+                    user_id=validated_user_id,
+                    document_id=validated_document_id,
+                    error=str(err)
+                )
+                raise DatabaseConnectionException(
+                    f"Database service temporarily unavailable. "
+                    f"Please try again in a few moments."
+                ) from err
+            
+            except Exception as err:
+                self.logger.error(
+                    "Unexpected error during session creation",
+                    request_id=request_id,
+                    user_id=validated_user_id,
+                    document_id=validated_document_id,
+                    error=str(err),
+                    error_type=type(err).__name__
+                )
+                raise SessionCreationFailedException(
+                    f"Failed to create chat session due to internal error. "
+                    f"Please try again or contact support if the issue persists."
+                ) from err
+                
+        except (
+            InvalidUserIdFormatException,
+            InvalidDocumentIdFormatException,
+            DocumentNotFoundException,
+            DocumentNotReadyException,
+            DocumentHasNoContentException,
+            SessionLimitExceededException,
+            SessionCreationFailedException,
+            DatabaseConnectionException
+        ):
+            # Re-raise specific exceptions without wrapping
+            raise
             
         except Exception as err:
-            self.logger.error(f"Failed to create chat session: {err}")
-            raise ChatException(f"Failed to create chat session: {err}") from err
+            # Catch any other unexpected errors
+            self.logger.error(
+                "Unexpected error in chat session creation",
+                request_id=request_id,
+                user_id=user_id,
+                document_id=document_id,
+                error=str(err),
+                error_type=type(err).__name__
+            )
+            raise SessionCreationFailedException(
+                f"An unexpected error occurred during session creation. "
+                f"Please try again or contact support if the issue persists."
+            ) from err
     
     async def process_chat_question(
         self,

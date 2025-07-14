@@ -106,6 +106,281 @@ class TestChatSessions:
         assert response.status_code == 422
 
 
+class TestChatSessionExceptions:
+    """Tests para manejo específico de excepciones en creación de sesiones de chat."""
+
+    @pytest.mark.edge_case
+    def test_create_session_invalid_document_id_format(self, api_client, test_user_data):
+        """Test de error con formato de document_id inválido."""
+        # Casos de document_id con formato inválido
+        invalid_document_ids = [
+            "invalid_id",  # No es ObjectId
+            "123",  # Muy corto
+            "60f7b3b8e8f4c2a1b8d3e4f",  # 23 caracteres (falta 1)
+            "60f7b3b8e8f4c2a1b8d3e4f55",  # 25 caracteres (sobra 1)
+            "gggggggggggggggggggggggg",  # Caracteres no hex
+            "",  # Vacío
+            "   ",  # Solo espacios
+        ]
+        
+        for invalid_id in invalid_document_ids:
+            session_data = {
+                "user_id": test_user_data["user_id"],
+                "document_id": invalid_id,
+                "session_name": "Test Session"
+            }
+            
+            response = api_client.post("/api/v1/chat/sessions", json=session_data)
+            
+            # Algunas validaciones son interceptadas por FastAPI (422) y otras por nuestro código (400)
+            assert response.status_code in [400, 422]
+            data = response.json()
+            
+            if response.status_code == 400:
+                # Nuestro validador personalizado - estructura anidada
+                assert "error_code" in data
+                assert data["error_code"] == "HTTP_400"
+                assert "error_message" in data
+                
+                # Check nested error details
+                error_details = data["error_message"]
+                assert "error_code" in error_details
+                assert error_details["error_code"] == "INVALID_DOCUMENT_ID_FORMAT"
+                assert "message" in error_details
+                assert "suggestion" in error_details
+                assert "MongoDB ObjectId" in error_details["suggestion"]
+            else:
+                # FastAPI/Pydantic validation - estructura estándar
+                assert "detail" in data
+                if isinstance(data["detail"], list):
+                    # Lista de errores de validación
+                    assert len(data["detail"]) > 0
+                    assert "msg" in data["detail"][0]
+                else:
+                    # Mensaje de error simple
+                    assert isinstance(data["detail"], str)
+
+    @pytest.mark.edge_case
+    def test_create_session_invalid_user_id_format(self, api_client, uploaded_document):
+        """Test de error con formato de user_id inválido."""
+        # Casos de user_id con formato inválido - probemos solo los que llegan a nuestro validador
+        invalid_user_ids = [
+            "user@domain.com",  # Contiene @
+            "user#123",  # Contiene #
+            "user with spaces",  # Contiene espacios
+            "user/slash",  # Contiene /
+            "user\\backslash",  # Contiene \
+            "user<>brackets",  # Contiene < >
+            "a" * 101,  # Muy largo (>100 caracteres)
+        ]
+        
+        for invalid_user_id in invalid_user_ids:
+            session_data = {
+                "user_id": invalid_user_id,
+                "document_id": uploaded_document["document_id"],
+                "session_name": "Test Session"
+            }
+            
+            response = api_client.post("/api/v1/chat/sessions", json=session_data)
+            
+            # Algunas validaciones son interceptadas por FastAPI (422) y otras por nuestro código (400)
+            assert response.status_code in [400, 422]
+            data = response.json()
+            
+            if response.status_code == 400:
+                # Nuestro validador personalizado - estructura anidada
+                assert "error_code" in data
+                assert data["error_code"] == "HTTP_400"
+                assert "error_message" in data
+                
+                # Check nested error details
+                error_details = data["error_message"]
+                assert "error_code" in error_details
+                assert error_details["error_code"] == "INVALID_USER_ID_FORMAT"
+                assert "message" in error_details
+                assert "suggestion" in error_details
+                assert "alphanumeric" in error_details["suggestion"]
+            else:
+                # FastAPI/Pydantic validation
+                assert "detail" in data
+
+    @pytest.mark.edge_case
+    def test_create_session_document_not_found(self, api_client, test_user_data):
+        """Test de error con documento inexistente pero con formato ObjectId válido."""
+        session_data = {
+            "user_id": test_user_data["user_id"],
+            "document_id": "60f7b3b8e8f4c2a1b8d3e4f5",  # ObjectId válido pero inexistente
+            "session_name": "Test Session"
+        }
+        
+        response = api_client.post("/api/v1/chat/sessions", json=session_data)
+        
+        assert response.status_code == 404
+        data = response.json()
+        
+        # Check main error structure
+        assert "error_code" in data
+        assert data["error_code"] == "HTTP_404"
+        assert "error_message" in data
+        
+        # Check nested error details
+        error_details = data["error_message"]
+        assert "error_code" in error_details
+        assert error_details["error_code"] == "DOCUMENT_NOT_FOUND"
+        assert "message" in error_details
+        assert "suggestion" in error_details
+        assert "verify the document ID exists" in error_details["suggestion"]
+        assert "60f7b3b8e8f4c2a1b8d3e4f5" in error_details["message"]
+
+    @pytest.mark.edge_case
+    def test_create_session_with_empty_data(self, api_client):
+        """Test de error con datos vacíos."""
+        session_data = {}
+        
+        response = api_client.post("/api/v1/chat/sessions", json=session_data)
+        
+        # FastAPI validation should catch this before our custom validation
+        assert response.status_code == 422
+        error_data = response.json()
+        assert "detail" in error_data
+
+    @pytest.mark.edge_case
+    def test_create_session_with_null_values(self, api_client):
+        """Test de error con valores null."""
+        session_data = {
+            "user_id": None,
+            "document_id": None,
+            "session_name": "Test Session"
+        }
+        
+        response = api_client.post("/api/v1/chat/sessions", json=session_data)
+        
+        # FastAPI validation should catch this
+        assert response.status_code == 422
+        error_data = response.json()
+        assert "detail" in error_data
+
+    @pytest.mark.edge_case
+    def test_create_session_invalid_session_name_characters(self, api_client, uploaded_document):
+        """Test de validación de session_name con caracteres problemáticos."""
+        # Casos de session_name con caracteres problemáticos
+        # Vamos a probar casos menos extremos primero
+        problematic_names = [
+            "a" * 201,  # Muy largo (>200 caracteres)
+            "Session \"with quotes\"",  # Comillas dobles
+            "Session 'with quotes'",  # Comillas simples
+            "Session\\with\\backslashes",  # Backslashes
+        ]
+        
+        for problematic_name in problematic_names:
+            session_data = {
+                "user_id": uploaded_document["user_data"]["user_id"],
+                "document_id": uploaded_document["document_id"],
+                "session_name": problematic_name
+            }
+            
+            response = api_client.post("/api/v1/chat/sessions", json=session_data)
+            
+            # La validación de session_name debería atrapar algunos casos
+            # pero otros podrían pasar a través de FastAPI validation
+            assert response.status_code in [400, 422]
+            data = response.json()
+            
+            if response.status_code == 400:
+                # Nuestro validador personalizado - estructura anidada
+                assert "error_code" in data
+                assert data["error_code"] == "HTTP_400"
+                assert "error_message" in data
+                
+                error_details = data["error_message"]
+                assert "error_code" in error_details
+                assert "message" in error_details
+                assert "suggestion" in error_details
+            else:
+                # Validación de FastAPI - estructura diferente
+                assert "detail" in data
+
+    @pytest.mark.edge_case
+    def test_create_session_valid_edge_cases(self, api_client, uploaded_document):
+        """Test de casos edge válidos que deberían funcionar."""
+        valid_cases = [
+            {
+                "user_id": "user_123",
+                "session_name": None  # Debería ser permitido
+            },
+            {
+                "user_id": "user.with.dots",
+                "session_name": ""  # Debería convertirse a None
+            },
+            {
+                "user_id": "user-with-hyphens",
+                "session_name": "   "  # Solo espacios, debería convertirse a None
+            },
+            {
+                "user_id": "user_123",
+                "session_name": "a" * 200  # Exactamente 200 caracteres
+            }
+        ]
+        
+        for case in valid_cases:
+            session_data = {
+                "user_id": case["user_id"],
+                "document_id": uploaded_document["document_id"],
+                "session_name": case["session_name"]
+            }
+            
+            response = api_client.post("/api/v1/chat/sessions", json=session_data)
+            
+            assert response.status_code == 201
+            session = response.json()
+            assert "session_id" in session
+            assert session["user_id"] == case["user_id"]
+            assert session["document_id"] == uploaded_document["document_id"]
+            
+            # session_name debería ser None si era None, vacío o solo espacios
+            if not case["session_name"] or not case["session_name"].strip():
+                assert session["session_name"] is not None  # Se genera automáticamente
+            else:
+                assert session["session_name"] == case["session_name"]
+
+    @pytest.mark.edge_case  
+    def test_create_session_error_response_structure(self, api_client, test_user_data):
+        """Test de estructura de respuestas de error."""
+        session_data = {
+            "user_id": test_user_data["user_id"],
+            "document_id": "invalid_format",  # Formato inválido
+            "session_name": "Test Session"
+        }
+        
+        response = api_client.post("/api/v1/chat/sessions", json=session_data)
+        
+        assert response.status_code == 400
+        data = response.json()
+        
+        # Verificar estructura principal
+        main_required_fields = ["error_code", "error_message", "timestamp"]
+        for field in main_required_fields:
+            assert field in data, f"Campo principal '{field}' faltante en respuesta de error"
+        
+        # Verificar estructura anidada
+        error_details = data["error_message"]
+        nested_required_fields = ["error_code", "message", "suggestion"]
+        for field in nested_required_fields:
+            assert field in error_details, f"Campo anidado '{field}' faltante en respuesta de error"
+        
+        # Verificar tipos de datos
+        assert isinstance(data["error_code"], str)
+        assert isinstance(error_details["error_code"], str)
+        assert isinstance(error_details["message"], str)
+        assert isinstance(error_details["suggestion"], str)
+        
+        # Verificar que los campos no están vacíos
+        assert len(data["error_code"]) > 0
+        assert len(error_details["error_code"]) > 0
+        assert len(error_details["message"]) > 0
+        assert len(error_details["suggestion"]) > 0
+
+
 class TestChatSessionListing:
     """Tests para listado de sesiones de chat."""
 
@@ -392,6 +667,281 @@ class TestChatSessionInteractions:
         # Hacer una pregunta primero para crear una interacción
         question_data = {
             "session_id": session_id,
+            "user_id": user_id,
+            "document_id": document_id,
+            "question": "¿Cuál es el contenido del documento?"
+        }
+        
+        # Hacer la pregunta (esto creará una interacción)
+        ask_response = api_client.post("/api/v1/chat/ask", json=question_data)
+        assert ask_response.status_code == 200
+        
+        # Esperar un poco para que se procese
+        time.sleep(2)
+        
+        # Obtener interacciones
+        response = api_client.get(f"/api/v1/chat/sessions/{session_id}/interactions?user_id={user_id}")
+        
+        assert response.status_code == 200
+        
+        result = response.json()
+        assert len(result["interactions"]) > 0
+        
+        interaction = result["interactions"][0]
+        assert "interaction_id" in interaction
+        assert interaction["session_id"] == session_id
+        assert interaction["user_id"] == user_id
+        assert interaction["question"] == question_data["question"]
+        assert "response" in interaction
+        assert "created_at" in interaction
+
+    def test_get_session_interactions_pagination(self, api_client, chat_session):
+        """Test de paginación en interacciones."""
+        session_id = chat_session["session_id"]
+        user_id = chat_session["document"]["user_data"]["user_id"]
+        
+        response = api_client.get(f"/api/v1/chat/sessions/{session_id}/interactions?user_id={user_id}&limit=10&skip=0")
+        
+        assert response.status_code == 200
+        
+        result = response.json()
+        assert result["limit"] == 10
+        assert result["skip"] == 0
+
+    @pytest.mark.edge_case
+    def test_get_session_interactions_missing_user_id(self, api_client, chat_session):
+        """Test de error al no proporcionar user_id."""
+        session_id = chat_session["session_id"]
+        
+        response = api_client.get(f"/api/v1/chat/sessions/{session_id}/interactions")
+        
+        assert response.status_code == 422
+
+
+class TestChatSessionDeletion:
+    """Tests para eliminación de sesiones de chat."""
+
+    def test_delete_session_success(self, api_client, chat_session):
+        """Test de eliminación exitosa de sesión."""
+        session_id = chat_session["session_id"]
+        user_id = chat_session["document"]["user_data"]["user_id"]
+        
+        response = api_client.delete(f"/api/v1/chat/sessions/{session_id}?user_id={user_id}")
+        
+        assert response.status_code == 200
+        
+        result = response.json()
+        assert result["session_id"] == session_id
+        assert result["deleted"] is True
+        assert "interactions_deleted" in result
+        assert "message" in result
+        assert "deleted_timestamp" in result
+        
+        # Verificar que la sesión ya no existe
+        get_response = api_client.get(f"/api/v1/chat/sessions/{session_id}?user_id={user_id}")
+        assert get_response.status_code == 404
+
+    @pytest.mark.edge_case
+    def test_delete_session_missing_user_id(self, api_client, chat_session):
+        """Test de error al no proporcionar user_id."""
+        session_id = chat_session["session_id"]
+        
+        response = api_client.delete(f"/api/v1/chat/sessions/{session_id}")
+        
+        assert response.status_code == 422
+
+    @pytest.mark.edge_case
+    def test_delete_session_wrong_user(self, api_client, chat_session, test_user_data):
+        """Test de error al intentar eliminar con usuario incorrecto."""
+        session_id = chat_session["session_id"]
+        wrong_user_id = test_user_data["alternative_user_id"]
+        
+        response = api_client.delete(f"/api/v1/chat/sessions/{session_id}?user_id={wrong_user_id}")
+        
+        assert response.status_code == 200
+        
+        result = response.json()
+        assert result["deleted"] is False
+
+    @pytest.mark.edge_case
+    def test_delete_session_nonexistent(self, api_client, clean_database, test_user_data):
+        """Test de eliminación de sesión inexistente."""
+        fake_session_id = "nonexistent-session-id"
+        user_id = test_user_data["user_id"]
+        
+        response = api_client.delete(f"/api/v1/chat/sessions/{fake_session_id}?user_id={user_id}")
+        
+        assert response.status_code == 200
+        
+        result = response.json()
+        assert result["deleted"] is False
+
+
+class TestChatStatistics:
+    """Tests para estadísticas de chat."""
+
+    def test_get_chat_stats_empty(self, api_client, clean_database):
+        """Test de estadísticas cuando no hay datos."""
+        response = api_client.get("/api/v1/chat/stats")
+        
+        assert response.status_code == 200
+        
+        stats = response.json()
+        assert "period_days" in stats
+        assert "total_interactions" in stats
+        assert "total_questions" in stats
+        assert "total_responses" in stats
+        assert stats["total_interactions"] == 0
+        assert stats["total_questions"] == 0
+        assert stats["total_responses"] == 0
+
+    def test_get_chat_stats_with_filter(self, api_client, chat_session):
+        """Test de estadísticas con filtros."""
+        user_id = chat_session["document"]["user_data"]["user_id"]
+        document_id = chat_session["document"]["document_id"]
+        
+        # Test con filtro por usuario
+        response1 = api_client.get(f"/api/v1/chat/stats?user_id={user_id}")
+        assert response1.status_code == 200
+        
+        # Test con filtro por documento
+        response2 = api_client.get(f"/api/v1/chat/stats?document_id={document_id}")
+        assert response2.status_code == 200
+        
+        # Test con ambos filtros
+        response3 = api_client.get(f"/api/v1/chat/stats?user_id={user_id}&document_id={document_id}")
+        assert response3.status_code == 200
+
+    def test_get_chat_stats_custom_period(self, api_client, clean_database):
+        """Test de estadísticas con período personalizado."""
+        response = api_client.get("/api/v1/chat/stats?days=7")
+        
+        assert response.status_code == 200
+        
+        stats = response.json()
+        assert stats["period_days"] == 7
+
+    @pytest.mark.edge_case
+    def test_get_chat_stats_invalid_period(self, api_client, clean_database):
+        """Test con período inválido."""
+        # Días negativos
+        response1 = api_client.get("/api/v1/chat/stats?days=-1")
+        assert response1.status_code == 422
+        
+        # Días que exceden el máximo
+        response2 = api_client.get("/api/v1/chat/stats?days=400")
+        assert response2.status_code == 422
+
+
+class TestChatWorkflow:
+    """Tests de flujo completo de chat."""
+
+    @pytest.mark.slow
+    def test_complete_chat_workflow(self, api_client, uploaded_document):
+        """Test del flujo completo de chat: crear sesión -> preguntar -> obtener interacciones -> eliminar."""
+        user_id = uploaded_document["user_data"]["user_id"]
+        document_id = uploaded_document["document_id"]
+        
+        # 1. Crear sesión
+        session_data = {
+            "user_id": user_id,
+            "document_id": document_id,
+            "session_name": "Complete Workflow Test"
+        }
+        
+        create_response = api_client.post("/api/v1/chat/sessions", json=session_data)
+        assert create_response.status_code == 201
+        session_id = create_response.json()["session_id"]
+        
+        # 2. Hacer una pregunta
+        question_data = {
+            "session_id": session_id,
+            "user_id": user_id,
+            "document_id": document_id,
+            "question": "¿Qué información contiene este documento?"
+        }
+        
+        ask_response = api_client.post("/api/v1/chat/ask", json=question_data)
+        assert ask_response.status_code == 200
+        
+        # Esperar procesamiento
+        time.sleep(3)
+        
+        # 3. Verificar que la sesión tiene interacciones
+        interactions_response = api_client.get(f"/api/v1/chat/sessions/{session_id}/interactions?user_id={user_id}")
+        assert interactions_response.status_code == 200
+        interactions = interactions_response.json()["interactions"]
+        assert len(interactions) > 0
+        
+        # 4. Obtener información de la sesión
+        info_response = api_client.get(f"/api/v1/chat/sessions/{session_id}?user_id={user_id}")
+        assert info_response.status_code == 200
+        session_info = info_response.json()
+        assert session_info["interaction_count"] > 0
+        
+        # 5. Eliminar sesión
+        delete_response = api_client.delete(f"/api/v1/chat/sessions/{session_id}?user_id={user_id}")
+        assert delete_response.status_code == 200
+        assert delete_response.json()["deleted"] is True
+        
+        # 6. Verificar eliminación
+        final_info_response = api_client.get(f"/api/v1/chat/sessions/{session_id}?user_id={user_id}")
+        assert final_info_response.status_code == 404
+
+    def test_multiple_sessions_same_document(self, api_client, uploaded_document):
+        """Test de múltiples sesiones para el mismo documento."""
+        user_id = uploaded_document["user_data"]["user_id"]
+        document_id = uploaded_document["document_id"]
+        
+        # Crear múltiples sesiones
+        session_ids = []
+        for i in range(3):
+            session_data = {
+                "user_id": user_id,
+                "document_id": document_id,
+                "session_name": f"Session {i+1}"
+            }
+            
+            response = api_client.post("/api/v1/chat/sessions", json=session_data)
+            assert response.status_code == 201
+            session_ids.append(response.json()["session_id"])
+        
+        # Verificar que todas las sesiones existen
+        list_response = api_client.get(f"/api/v1/chat/sessions?user_id={user_id}")
+        assert list_response.status_code == 200
+        sessions = list_response.json()["sessions"]
+        assert len(sessions) == 3
+        
+        # Verificar que todas pertenecen al mismo documento
+        for session in sessions:
+            assert session["document_id"] == document_id
+
+    def test_session_isolation_between_users(self, api_client, uploaded_document, test_user_data):
+        """Test de aislamiento de sesiones entre usuarios."""
+        user1_id = uploaded_document["user_data"]["user_id"]
+        user2_id = test_user_data["alternative_user_id"]
+        document_id = uploaded_document["document_id"]
+        
+        # Usuario 1 crea sesión
+        session_data_1 = {
+            "user_id": user1_id,
+            "document_id": document_id,
+            "session_name": "User 1 Session"
+        }
+        
+        response1 = api_client.post("/api/v1/chat/sessions", json=session_data_1)
+        assert response1.status_code == 201
+        session1_id = response1.json()["session_id"]
+        
+        # Usuario 2 no debería ver la sesión de usuario 1
+        list_response = api_client.get(f"/api/v1/chat/sessions?user_id={user2_id}")
+        assert list_response.status_code == 200
+        user2_sessions = list_response.json()["sessions"]
+        assert len(user2_sessions) == 0
+        
+        # Usuario 2 no debería poder acceder a la sesión de usuario 1
+        access_response = api_client.get(f"/api/v1/chat/sessions/{session1_id}?user_id={user2_id}")
+        assert access_response.status_code == 400 
             "user_id": user_id,
             "document_id": document_id,
             "question": "¿Cuál es el contenido del documento?"
