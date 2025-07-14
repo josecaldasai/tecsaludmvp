@@ -350,6 +350,26 @@ class FuzzySearchResponse(BaseModel):
         description="Number of results skipped"
     )
     
+    returned_count: int = Field(
+        description="Actual number of documents returned in this response"
+    )
+    
+    has_next: bool = Field(
+        description="Whether there are more results available"
+    )
+    
+    has_prev: bool = Field(
+        description="Whether there are previous results available"
+    )
+    
+    current_page: int = Field(
+        description="Current page number (1-based)"
+    )
+    
+    total_pages: int = Field(
+        description="Total number of pages available"
+    )
+    
     search_strategies_used: List[str] = Field(
         description="List of search strategies used"
     )
@@ -359,7 +379,7 @@ class FuzzySearchResponse(BaseModel):
     )
     
     search_timestamp: str = Field(
-        description="Timestamp when search was performed"
+        description="Timestamp when the search was performed"
     )
 
 
@@ -380,6 +400,30 @@ class SearchSuggestionsResponse(BaseModel):
     
     limit: int = Field(
         description="Maximum number of suggestions requested"
+    )
+    
+    returned_count: int = Field(
+        description="Actual number of suggestions returned in this response"
+    )
+    
+    has_next: bool = Field(
+        description="Whether there are more suggestions available"
+    )
+    
+    has_prev: bool = Field(
+        description="Whether there are previous suggestions available"
+    )
+    
+    current_page: int = Field(
+        description="Current page number (1-based)"
+    )
+    
+    total_pages: int = Field(
+        description="Total number of pages available"
+    )
+    
+    search_timestamp: str = Field(
+        description="Timestamp when the search was performed"
     )
 
 

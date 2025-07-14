@@ -264,14 +264,27 @@ async def search_patients_by_name(
             )
             fuzzy_documents.append(fuzzy_doc)
         
+        # Calculate pagination metadata
+        total_found = search_results["total_found"]
+        returned_count = len(fuzzy_documents)
+        current_page = (params.skip // params.limit) + 1
+        total_pages = (total_found + params.limit - 1) // params.limit if total_found > 0 else 1
+        has_next = (params.skip + params.limit) < total_found
+        has_prev = params.skip > 0
+        
         # Create response
         response = FuzzySearchResponse(
             search_term=search_results["search_term"],
             normalized_term=search_results["normalized_term"],
-            total_found=search_results["total_found"],
+            total_found=total_found,
             documents=fuzzy_documents,
-            limit=search_results["limit"],
-            skip=search_results["skip"],
+            limit=params.limit,
+            skip=params.skip,
+            returned_count=returned_count,
+            has_next=has_next,
+            has_prev=has_prev,
+            current_page=current_page,
+            total_pages=total_pages,
             search_strategies_used=search_results["search_strategies_used"],
             min_similarity_threshold=search_results["min_similarity_threshold"],
             search_timestamp=search_results["search_timestamp"]
@@ -333,12 +346,26 @@ async def get_patient_name_suggestions(
             limit=params.limit
         )
         
+        # Calculate pagination metadata
+        total_suggestions = len(suggestions)
+        returned_count = total_suggestions
+        current_page = 1
+        total_pages = 1
+        has_next = False
+        has_prev = False
+        
         # Create response
         response = SearchSuggestionsResponse(
             partial_term=params.partial_term,
             suggestions=suggestions,
-            total_suggestions=len(suggestions),
-            limit=params.limit
+            total_suggestions=total_suggestions,
+            limit=params.limit,
+            returned_count=returned_count,
+            has_next=has_next,
+            has_prev=has_prev,
+            current_page=current_page,
+            total_pages=total_pages,
+            search_timestamp=datetime.now().isoformat()
         )
         
         logger.info(
@@ -452,14 +479,27 @@ async def get_documents_by_patient_name(
         search_results["documents"] = exact_matches
         search_results["total_found"] = len(exact_matches)
         
+        # Calculate pagination metadata
+        total_found = len(exact_matches)
+        returned_count = len(fuzzy_documents)
+        current_page = (skip // limit) + 1
+        total_pages = (total_found + limit - 1) // limit if total_found > 0 else 1
+        has_next = (skip + limit) < total_found
+        has_prev = skip > 0
+        
         # Create response
         response = FuzzySearchResponse(
             search_term=patient_name,
             normalized_term=search_results["normalized_term"],
-            total_found=len(exact_matches),
+            total_found=total_found,
             documents=fuzzy_documents,
             limit=limit,
             skip=skip,
+            returned_count=returned_count,
+            has_next=has_next,
+            has_prev=has_prev,
+            current_page=current_page,
+            total_pages=total_pages,
             search_strategies_used=["exact_match"],
             min_similarity_threshold=0.9,
             search_timestamp=datetime.now().isoformat()
