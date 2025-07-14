@@ -4,7 +4,9 @@ import json
 import logging
 from typing import List, Optional, Any
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Depends
+from fastapi.responses import JSONResponse
 from datetime import datetime
+from pydantic import ValidationError
 
 from app.apis.v1.types_in import (
     DocumentUploadData,
@@ -25,7 +27,9 @@ from app.core.v1.document_processor import DocumentProcessor
 from app.core.v1.exceptions import (
     DocumentProcessorException,
     DatabaseException,
-    ValidationException
+    ValidationException,
+    UserIdRequiredException,
+    InvalidUserIdException
 )
 from app.core.v1.validators import DocumentValidator
 from app.core.v1.log_manager import LogManager
@@ -36,6 +40,68 @@ router = APIRouter()
 # Initialize components
 document_processor = DocumentProcessor()
 logger = LogManager(__name__)
+
+
+def handle_userid_validation_error(error: ValidationError, request_id: str = None) -> HTTPException:
+    """
+    Handle user_id validation errors and convert them to custom exceptions.
+    
+    Args:
+        error: ValidationError from Pydantic
+        request_id: Optional request ID for tracking
+        
+    Returns:
+        HTTPException with appropriate status code and custom error message
+    """
+    for error_detail in error.errors():
+        if error_detail.get('loc') == ('user_id',) or 'user_id' in str(error_detail.get('loc', [])):
+            error_type = error_detail.get('type', '')
+            error_msg = error_detail.get('msg', '')
+            
+            if error_type == 'missing':
+                logger.error(
+                    "User ID is required but not provided",
+                    request_id=request_id,
+                    error_type=error_type,
+                    error_msg=error_msg
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error_code": "USER_ID_REQUIRED",
+                        "message": "User ID is required for this operation. Please provide a valid user_id parameter.",
+                        "request_id": request_id,
+                        "suggestion": "Add user_id parameter to your request (e.g., ?user_id=your_user_id)"
+                    }
+                )
+            
+            elif error_type == 'string_too_short' or 'empty' in error_msg.lower():
+                logger.error(
+                    "User ID is empty or too short",
+                    request_id=request_id,
+                    error_type=error_type,
+                    error_msg=error_msg
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error_code": "INVALID_USER_ID",
+                        "message": "User ID cannot be empty. Please provide a valid user_id parameter.",
+                        "request_id": request_id,
+                        "suggestion": "Ensure user_id has at least 1 character (e.g., ?user_id=your_user_id)"
+                    }
+                )
+    
+    # If it's not a user_id error, re-raise the original ValidationError
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "error_code": "VALIDATION_ERROR",
+            "message": f"Request validation failed: {str(error)}",
+            "request_id": request_id,
+            "suggestion": "Please check your request parameters and try again"
+        }
+    )
 
 
 def get_upload_data(
@@ -187,12 +253,27 @@ async def upload_documents_batch(
 
 
 def get_search_params(
-    user_id: Optional[str] = Query(None, description="Filter documents by user ID"),
+    user_id: str = Query(..., min_length=1, description="Filter documents by user ID (required)"),
     batch_id: Optional[str] = Query(None, description="Filter documents by batch ID"),
     limit: int = Query(10, ge=1, le=100, description="Maximum number of results"),
     skip: int = Query(0, ge=0, description="Number of results to skip")
 ) -> DocumentSearchParams:
-    return validate_search_params(user_id, batch_id, limit, skip)
+    try:
+        return validate_search_params(user_id, batch_id, limit, skip)
+    except ValidationError as e:
+        handle_userid_validation_error(e, f"search_params_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    except ValueError as e:
+        if "user_id" in str(e).lower():
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": "INVALID_USER_ID",
+                    "message": f"Invalid user_id: {str(e)}",
+                    "request_id": f"search_params_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                    "suggestion": "Please provide a valid user_id parameter"
+                }
+            )
+        raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
 
 
 @router.get("/", response_model=DocumentSearchResponse)
@@ -200,19 +281,20 @@ async def list_documents(
     params: DocumentSearchParams = Depends(get_search_params)
 ):
     """
-    List documents with optional filtering by user or batch.
+    List documents with required user_id filtering and optional batch filtering.
     
     This endpoint provides comprehensive document listing with enhanced pagination,
-    filtering capabilities, and specific error handling.
+    filtering capabilities, and specific error handling. The user_id is required
+    to ensure users can only see their own documents.
     
     Args:
-        params: Validated search parameters (user_id, batch_id, limit, skip)
+        params: Validated search parameters (user_id required, batch_id optional, limit, skip)
     
     Returns:
         DocumentSearchResponse: Paginated list of documents with metadata
         
     Raises:
-        400 Bad Request: Invalid search parameters (e.g., invalid UUID for batch_id)
+        400 Bad Request: Invalid search parameters or missing user_id
         503 Service Unavailable: Database connection issues
     """
     # Generate request ID for tracking

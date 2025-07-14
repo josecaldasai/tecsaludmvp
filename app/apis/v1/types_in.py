@@ -1,8 +1,8 @@
 """Input validation models for document processing API."""
 
 import json
-from typing import Optional, List
-from pydantic import BaseModel, Field, validator, root_validator
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field, validator, ValidationError
 import uuid
 
 
@@ -109,10 +109,9 @@ class BatchUploadData(BaseModel):
 class DocumentSearchParams(BaseModel):
     """Validation model for document search parameters."""
     
-    user_id: Optional[str] = Field(
-        default=None,
+    user_id: str = Field(
         max_length=100,
-        description="Filter documents by user ID"
+        description="Filter documents by user ID (required)"
     )
     
     batch_id: Optional[str] = Field(
@@ -137,8 +136,8 @@ class DocumentSearchParams(BaseModel):
     @validator('user_id')
     def validate_user_id(cls, v):
         """Validate user_id format."""
-        if v is not None and v.strip() == "":
-            return None
+        if v is None or v.strip() == "":
+            raise ValidationError("user_id is required and cannot be empty")
         return v
     
     @validator('batch_id')
@@ -152,7 +151,7 @@ class DocumentSearchParams(BaseModel):
                 uuid.UUID(v)
                 return v
             except ValueError:
-                raise ValueError(f"batch_id must be a valid UUID format, got: '{v}'")
+                raise ValidationError(f"batch_id must be a valid UUID format, got: '{v}'")
         return v
 
 
@@ -181,28 +180,28 @@ class ChatQuestionData(BaseModel):
     def validate_session_id(cls, v):
         """Validate session_id format."""
         if not v or not v.strip():
-            raise ValueError("Session ID cannot be empty")
+            raise ValidationError("Session ID cannot be empty")
         return v.strip()
     
     @validator('user_id')
     def validate_user_id(cls, v):
         """Validate user_id format."""
         if not v or not v.strip():
-            raise ValueError("User ID cannot be empty")
+            raise ValidationError("User ID cannot be empty")
         return v.strip()
     
     @validator('document_id')
     def validate_document_id(cls, v):
         """Validate document_id format."""
         if not v or not v.strip():
-            raise ValueError("Document ID cannot be empty")
+            raise ValidationError("Document ID cannot be empty")
         return v.strip()
     
     @validator('question')
     def validate_question(cls, v):
         """Validate question content."""
         if not v or not v.strip():
-            raise ValueError("Question cannot be empty")
+            raise ValidationError("Question cannot be empty")
         return v.strip()
 
 
@@ -227,14 +226,14 @@ class CreateSessionData(BaseModel):
     def validate_user_id(cls, v):
         """Validate user_id format."""
         if not v or not v.strip():
-            raise ValueError("User ID cannot be empty")
+            raise ValidationError("User ID cannot be empty")
         return v.strip()
     
     @validator('document_id')
     def validate_document_id(cls, v):
         """Validate document_id format."""
         if not v or not v.strip():
-            raise ValueError("Document ID cannot be empty")
+            raise ValidationError("Document ID cannot be empty")
         return v.strip()
     
     @validator('session_name')
@@ -364,12 +363,12 @@ def validate_batch_upload_data(
 
 
 def validate_search_params(
-    user_id: Optional[str] = None,
+    user_id: str,
     batch_id: Optional[str] = None,
     limit: int = 10,
     skip: int = 0
 ) -> DocumentSearchParams:
-    """Validate and return search parameters."""
+    """Validate document search parameters."""
     return DocumentSearchParams(
         user_id=user_id,
         batch_id=batch_id,
@@ -425,10 +424,9 @@ class FuzzySearchParams(BaseModel):
         description="Patient name or partial name to search for"
     )
     
-    user_id: Optional[str] = Field(
-        default=None,
+    user_id: str = Field(
         max_length=100,
-        description="Filter results by user ID"
+        description="Filter results by user ID (required)"
     )
     
     limit: int = Field(
@@ -460,14 +458,14 @@ class FuzzySearchParams(BaseModel):
     def validate_search_term(cls, v):
         """Validate search term."""
         if not v or v.strip() == "":
-            raise ValueError("Search term cannot be empty")
+            raise ValidationError("search_term cannot be empty")
         return v.strip()
     
     @validator('user_id')
     def validate_user_id(cls, v):
         """Validate user_id format."""
-        if v is not None and v.strip() == "":
-            return None
+        if v is None or v.strip() == "":
+            raise ValidationError("user_id is required and cannot be empty")
         return v
 
 
@@ -480,10 +478,9 @@ class SuggestionSearchParams(BaseModel):
         description="Partial patient name for suggestions"
     )
     
-    user_id: Optional[str] = Field(
-        default=None,
+    user_id: str = Field(
         max_length=100,
-        description="Filter suggestions by user ID"
+        description="Filter suggestions by user ID (required)"
     )
     
     limit: int = Field(
@@ -497,26 +494,68 @@ class SuggestionSearchParams(BaseModel):
     def validate_partial_term(cls, v):
         """Validate partial term."""
         if not v or v.strip() == "":
-            raise ValueError("Partial term cannot be empty")
+            raise ValueError("partial_term cannot be empty")
         return v.strip()
     
     @validator('user_id')
     def validate_user_id(cls, v):
         """Validate user_id format."""
-        if v is not None and v.strip() == "":
-            return None
+        if v is None or v.strip() == "":
+            raise ValueError("user_id is required and cannot be empty")
+        return v
+
+
+class PatientDocumentSearchParams(BaseModel):
+    """Validation model for patient document search parameters."""
+    
+    patient_name: str = Field(
+        min_length=1,
+        max_length=200,
+        description="Patient name to search for"
+    )
+    
+    user_id: str = Field(
+        max_length=100,
+        description="Filter results by user ID (required)"
+    )
+    
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of results"
+    )
+    
+    skip: int = Field(
+        default=0,
+        ge=0,
+        description="Number of results to skip"
+    )
+    
+    @validator('patient_name')
+    def validate_patient_name(cls, v):
+        """Validate patient name."""
+        if not v or v.strip() == "":
+            raise ValueError("patient_name cannot be empty")
+        return v.strip()
+    
+    @validator('user_id')
+    def validate_user_id(cls, v):
+        """Validate user_id format."""
+        if v is None or v.strip() == "":
+            raise ValueError("user_id is required and cannot be empty")
         return v
 
 
 def validate_fuzzy_search_params(
     search_term: str,
-    user_id: Optional[str] = None,
+    user_id: str,
     limit: int = 20,
     skip: int = 0,
     min_similarity: float = 0.3,
     include_score: bool = True
 ) -> FuzzySearchParams:
-    """Validate and return fuzzy search parameters."""
+    """Validate fuzzy search parameters."""
     return FuzzySearchParams(
         search_term=search_term,
         user_id=user_id,
@@ -529,12 +568,27 @@ def validate_fuzzy_search_params(
 
 def validate_suggestion_search_params(
     partial_term: str,
-    user_id: Optional[str] = None,
+    user_id: str,
     limit: int = 10
 ) -> SuggestionSearchParams:
-    """Validate and return suggestion search parameters."""
+    """Validate search suggestion parameters."""
     return SuggestionSearchParams(
         partial_term=partial_term,
         user_id=user_id,
         limit=limit
+    )
+
+
+def validate_patient_document_search_params(
+    patient_name: str,
+    user_id: str,
+    limit: int = 20,
+    skip: int = 0
+) -> PatientDocumentSearchParams:
+    """Validate patient document search parameters."""
+    return PatientDocumentSearchParams(
+        patient_name=patient_name,
+        user_id=user_id,
+        limit=limit,
+        skip=skip
     ) 

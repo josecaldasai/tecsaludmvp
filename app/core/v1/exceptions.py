@@ -144,6 +144,12 @@ class UserIdRequiredException(ChatException):
     pass
 
 
+class InvalidUserIdException(ChatException):
+    """Exception when user_id parameter is provided but invalid (empty, too short, etc.)."""
+    
+    pass
+
+
 class InvalidPaginationParametersException(ChatException):
     """Exception for invalid pagination parameters (limit, skip)."""
     

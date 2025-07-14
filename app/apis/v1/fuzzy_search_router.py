@@ -3,12 +3,15 @@
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, Depends
 from datetime import datetime
+from pydantic import ValidationError
 
 from app.apis.v1.types_in import (
     FuzzySearchParams,
     SuggestionSearchParams,
+    PatientDocumentSearchParams,
     validate_fuzzy_search_params,
-    validate_suggestion_search_params
+    validate_suggestion_search_params,
+    validate_patient_document_search_params
 )
 from app.apis.v1.types_out import (
     FuzzySearchResponse,
@@ -16,7 +19,11 @@ from app.apis.v1.types_out import (
     FuzzyDocumentMatch
 )
 from app.core.v1.fuzzy_search_manager import FuzzySearchManager
-from app.core.v1.exceptions import DatabaseException
+from app.core.v1.exceptions import (
+    DatabaseException,
+    UserIdRequiredException,
+    InvalidUserIdException
+)
 from app.core.v1.log_manager import LogManager
 
 # Initialize router
@@ -27,36 +34,158 @@ fuzzy_search_manager = FuzzySearchManager()
 logger = LogManager(__name__)
 
 
+def handle_userid_validation_error(error: ValidationError, request_id: str = None) -> HTTPException:
+    """
+    Handle user_id validation errors and convert them to custom exceptions.
+    
+    Args:
+        error: ValidationError from Pydantic
+        request_id: Optional request ID for tracking
+        
+    Returns:
+        HTTPException with appropriate status code and custom error message
+    """
+    for error_detail in error.errors():
+        if error_detail.get('loc') == ('user_id',) or 'user_id' in str(error_detail.get('loc', [])):
+            error_type = error_detail.get('type', '')
+            error_msg = error_detail.get('msg', '')
+            
+            if error_type == 'missing':
+                logger.error(
+                    "User ID is required but not provided",
+                    request_id=request_id,
+                    error_type=error_type,
+                    error_msg=error_msg
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error_code": "USER_ID_REQUIRED",
+                        "message": "User ID is required for this operation. Please provide a valid user_id parameter.",
+                        "request_id": request_id,
+                        "suggestion": "Add user_id parameter to your request (e.g., ?user_id=your_user_id)"
+                    }
+                )
+            
+            elif error_type == 'string_too_short' or 'empty' in error_msg.lower():
+                logger.error(
+                    "User ID is empty or too short",
+                    request_id=request_id,
+                    error_type=error_type,
+                    error_msg=error_msg
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error_code": "INVALID_USER_ID",
+                        "message": "User ID cannot be empty. Please provide a valid user_id parameter.",
+                        "request_id": request_id,
+                        "suggestion": "Ensure user_id has at least 1 character (e.g., ?user_id=your_user_id)"
+                    }
+                )
+    
+    # If it's not a user_id error, re-raise the original ValidationError
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "error_code": "VALIDATION_ERROR",
+            "message": f"Request validation failed: {str(error)}",
+            "request_id": request_id,
+            "suggestion": "Please check your request parameters and try again"
+        }
+    )
+
+
 def get_fuzzy_search_params(
     search_term: str = Query(..., description="Patient name or partial name to search for"),
-    user_id: Optional[str] = Query(None, description="Filter results by user ID"),
+    user_id: str = Query(..., min_length=1, description="Filter results by user ID (required)"),
     limit: int = Query(20, ge=1, le=100, description="Maximum number of results"),
     skip: int = Query(0, ge=0, description="Number of results to skip"),
     min_similarity: float = Query(0.3, ge=0.0, le=1.0, description="Minimum similarity score threshold"),
     include_score: bool = Query(True, description="Include similarity score in results")
 ) -> FuzzySearchParams:
     """Get and validate fuzzy search parameters."""
-    return validate_fuzzy_search_params(
-        search_term=search_term,
-        user_id=user_id,
-        limit=limit,
-        skip=skip,
-        min_similarity=min_similarity,
-        include_score=include_score
-    )
+    try:
+        return validate_fuzzy_search_params(
+            search_term=search_term,
+            user_id=user_id,
+            limit=limit,
+            skip=skip,
+            min_similarity=min_similarity,
+            include_score=include_score
+        )
+    except ValidationError as e:
+        handle_userid_validation_error(e, f"fuzzy_search_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    except ValueError as e:
+        if "user_id" in str(e).lower():
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": "INVALID_USER_ID",
+                    "message": f"Invalid user_id: {str(e)}",
+                    "request_id": f"fuzzy_search_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                    "suggestion": "Please provide a valid user_id parameter"
+                }
+            )
+        raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
 
 
 def get_suggestion_search_params(
     partial_term: str = Query(..., description="Partial patient name for suggestions"),
-    user_id: Optional[str] = Query(None, description="Filter suggestions by user ID"),
+    user_id: str = Query(..., min_length=1, description="Filter suggestions by user ID (required)"),
     limit: int = Query(10, ge=1, le=50, description="Maximum number of suggestions")
 ) -> SuggestionSearchParams:
     """Get and validate suggestion search parameters."""
-    return validate_suggestion_search_params(
-        partial_term=partial_term,
-        user_id=user_id,
-        limit=limit
-    )
+    try:
+        return validate_suggestion_search_params(
+            partial_term=partial_term,
+            user_id=user_id,
+            limit=limit
+        )
+    except ValidationError as e:
+        handle_userid_validation_error(e, f"suggestions_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    except ValueError as e:
+        if "user_id" in str(e).lower():
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": "INVALID_USER_ID",
+                    "message": f"Invalid user_id: {str(e)}",
+                    "request_id": f"suggestions_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                    "suggestion": "Please provide a valid user_id parameter"
+                }
+            )
+        raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
+
+
+def get_patient_document_search_params(
+    patient_name: str,
+    user_id: str = Query(..., description="Filter results by user ID (required)"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of results"),
+    skip: int = Query(0, ge=0, description="Number of results to skip")
+) -> PatientDocumentSearchParams:
+    """Get and validate patient document search parameters."""
+    try:
+        return validate_patient_document_search_params(
+            patient_name=patient_name,
+            user_id=user_id,
+            limit=limit,
+            skip=skip
+        )
+    except ValidationError as e:
+        handle_userid_validation_error(e, f"patient_docs_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    except ValueError as e:
+        if "user_id" in str(e).lower():
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": "INVALID_USER_ID",
+                    "message": f"Invalid user_id: {str(e)}",
+                    "request_id": f"patient_docs_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                    "suggestion": "Please provide a valid user_id parameter"
+                }
+            )
+        raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
 
 
 @router.get("/patients", response_model=FuzzySearchResponse)
@@ -75,8 +204,10 @@ async def search_patients_by_name(
     - Fuzzy similarity matching
     - MongoDB text search
     
+    The user_id parameter is required to ensure users can only search within their own documents.
+    
     Args:
-        params: Fuzzy search parameters including search term, filters, and options
+        params: Fuzzy search parameters including search term, user_id (required), filters, and options
     
     Returns:
         FuzzySearchResponse: Matched documents with similarity scores and metadata
@@ -168,21 +299,24 @@ async def get_patient_name_suggestions(
     params: SuggestionSearchParams = Depends(get_suggestion_search_params)
 ):
     """
-    Get patient name suggestions based on partial input.
+    Get patient name suggestions for autocomplete functionality.
     
-    This endpoint provides autocomplete suggestions for patient names based on
-    partial input. It's designed to help users find the correct patient name
-    by providing suggestions as they type.
+    This endpoint provides intelligent autocomplete suggestions for patient names
+    based on a partial search term. It's optimized for fast real-time suggestions
+    and implements smart fuzzy matching to handle typos and partial matches.
+    
+    The user_id parameter is required to ensure users can only get suggestions
+    from their own documents.
     
     Args:
-        params: Suggestion search parameters including partial term and filters
+        params: Suggestion search parameters including partial_term, user_id (required), and limit
     
     Returns:
-        SearchSuggestionsResponse: List of suggested patient names
+        SearchSuggestionsResponse: List of suggested patient names with metadata
     
     Examples:
-        - Input "GAR" returns ["GARCIA, MARIA", "GARCIA LOPEZ, JUAN", "GARZA, PEDRO"]
-        - Input "MAR" returns ["MARIA", "MARTINEZ", "MARQUEZ"]
+        - "MAR" might suggest: ["MARÍA GONZÁLEZ", "MARIO RODRÍGUEZ", "MARTHA LÓPEZ"]
+        - "GARC" might suggest: ["GARCÍA, JUAN", "GARCÍA LÓPEZ, MARÍA"]
     """
     try:
         logger.info(
@@ -226,7 +360,7 @@ async def get_patient_name_suggestions(
 @router.get("/patients/{patient_name}/documents", response_model=FuzzySearchResponse)
 async def get_documents_by_patient_name(
     patient_name: str,
-    user_id: Optional[str] = Query(None, description="Filter results by user ID"),
+    user_id: str = Query(..., min_length=1, description="Filter results by user ID (required)"),
     limit: int = Query(20, ge=1, le=100, description="Maximum number of results"),
     skip: int = Query(0, ge=0, description="Number of results to skip")
 ):
@@ -237,9 +371,12 @@ async def get_documents_by_patient_name(
     using exact name matching. It's useful when you know the exact patient name
     and want to retrieve all their documents.
     
+    The user_id parameter is required to ensure users can only see documents
+    from their own account.
+    
     Args:
         patient_name: Exact patient name to search for
-        user_id: Optional user filter
+        user_id: User ID to filter results (required)
         limit: Maximum number of results
         skip: Number of results to skip
     
@@ -247,6 +384,18 @@ async def get_documents_by_patient_name(
         FuzzySearchResponse: All documents for the specified patient
     """
     try:
+        # Validate user_id if it's empty or None
+        if not user_id or user_id.strip() == "":
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": "INVALID_USER_ID",
+                    "message": "User ID cannot be empty. Please provide a valid user_id parameter.",
+                    "request_id": f"patient_docs_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                    "suggestion": "Ensure user_id has at least 1 character (e.g., ?user_id=your_user_id)"
+                }
+            )
+        
         logger.info(
             "Processing exact patient name search",
             patient_name=patient_name,

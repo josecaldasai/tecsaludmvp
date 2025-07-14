@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
+from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
 import time
 from typing import Dict, Any
@@ -20,7 +21,9 @@ from app.core.v1.exceptions import (
     StorageException,
     OCRException,
     DatabaseException,
-    ChatException
+    ChatException,
+    UserIdRequiredException,
+    InvalidUserIdException
 )
 from app.settings.v1.settings import SETTINGS
 
@@ -204,6 +207,77 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         content={
             "error_code": f"HTTP_{exc.status_code}",
             "error_message": exc.detail,
+            "timestamp": time.time()
+        }
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle RequestValidationError exceptions with custom user_id error handling."""
+    request_id = f"validation_error_{int(time.time())}"
+    
+    logger.warning(
+        "Request validation error occurred",
+        path=request.url.path,
+        method=request.method,
+        errors=exc.errors(),
+        request_id=request_id
+    )
+    
+    # Check if it's a user_id validation error
+    for error in exc.errors():
+        loc = error.get('loc', [])
+        error_type = error.get('type', '')
+        error_msg = error.get('msg', '')
+        
+        # Check if error is related to user_id
+        if 'user_id' in loc or (len(loc) > 1 and loc[1] == 'user_id'):
+            if error_type == 'missing':
+                logger.error(
+                    "User ID is required but not provided",
+                    path=request.url.path,
+                    request_id=request_id,
+                    error_type=error_type
+                )
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error_code": "USER_ID_REQUIRED",
+                        "message": "User ID is required for this operation. Please provide a valid user_id parameter.",
+                        "request_id": request_id,
+                        "suggestion": "Add user_id parameter to your request (e.g., ?user_id=your_user_id)",
+                        "timestamp": time.time()
+                    }
+                )
+            
+            elif error_type == 'string_too_short' or 'empty' in error_msg.lower():
+                logger.error(
+                    "User ID is empty or too short",
+                    path=request.url.path,
+                    request_id=request_id,
+                    error_type=error_type
+                )
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error_code": "INVALID_USER_ID",
+                        "message": "User ID cannot be empty. Please provide a valid user_id parameter.",
+                        "request_id": request_id,
+                        "suggestion": "Ensure user_id has at least 1 character (e.g., ?user_id=your_user_id)",
+                        "timestamp": time.time()
+                    }
+                )
+    
+    # Default validation error handling
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error_code": "VALIDATION_ERROR",
+            "message": "Request validation failed",
+            "details": exc.errors(),
+            "request_id": request_id,
+            "suggestion": "Please check your request parameters and try again",
             "timestamp": time.time()
         }
     )
