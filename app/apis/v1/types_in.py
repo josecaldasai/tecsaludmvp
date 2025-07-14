@@ -3,6 +3,7 @@
 import json
 from typing import Optional, List
 from pydantic import BaseModel, Field, validator, root_validator
+import uuid
 
 
 class DocumentUploadData(BaseModel):
@@ -142,9 +143,16 @@ class DocumentSearchParams(BaseModel):
     
     @validator('batch_id')
     def validate_batch_id(cls, v):
-        """Validate batch_id format."""
-        if v is not None and v.strip() == "":
-            return None
+        """Validate batch_id format - must be valid UUID when provided."""
+        if v is not None:
+            if v.strip() == "":
+                return None
+            try:
+                # Validate UUID format
+                uuid.UUID(v)
+                return v
+            except ValueError:
+                raise ValueError(f"batch_id must be a valid UUID format, got: '{v}'")
         return v
 
 

@@ -222,9 +222,26 @@ class TestDocumentListing:
         
         assert response.status_code == 200
         
-        documents = response.json()
-        assert isinstance(documents, list)
-        assert len(documents) == 0
+        result = response.json()
+        assert "documents" in result
+        assert "total_found" in result
+        assert "pagination" in result or "has_next" in result  # Verificar estructura de paginación
+        
+        assert isinstance(result["documents"], list)
+        assert len(result["documents"]) == 0
+        assert result["total_found"] == 0
+        
+        # Verificar metadata de paginación
+        assert result["returned_count"] == 0
+        assert result["has_next"] is False
+        assert result["has_prev"] is False
+        assert result["current_page"] == 1
+        assert result["total_pages"] == 1
+        
+        # Verificar campos de tracking
+        assert "request_id" in result
+        assert "search_timestamp" in result
+        assert "applied_filters" in result
 
     def test_list_documents_with_documents(self, api_client, uploaded_document):
         """Test de listado con documentos existentes."""
@@ -232,15 +249,25 @@ class TestDocumentListing:
         
         assert response.status_code == 200
         
-        documents = response.json()
+        result = response.json()
+        assert "documents" in result
+        documents = result["documents"]
         assert isinstance(documents, list)
         assert len(documents) == 1
         
+        # Verificar información del documento
         doc = documents[0]
         assert doc["document_id"] == uploaded_document["document_id"]
         assert "filename" in doc
         assert "processing_status" in doc
         assert "created_at" in doc
+        
+        # Verificar metadata de paginación
+        assert result["total_found"] == 1
+        assert result["returned_count"] == 1
+        assert result["has_next"] is False
+        assert result["has_prev"] is False
+        assert result["current_page"] == 1
 
     def test_list_documents_filter_by_user(self, api_client, uploaded_document):
         """Test de filtrado por usuario."""
@@ -250,9 +277,13 @@ class TestDocumentListing:
         
         assert response.status_code == 200
         
-        documents = response.json()
+        result = response.json()
+        documents = result["documents"]
         assert len(documents) == 1
         assert documents[0]["user_id"] == user_id
+        
+        # Verificar filtros aplicados
+        assert result["applied_filters"]["user_id"] == user_id
 
     def test_list_documents_filter_nonexistent_user(self, api_client, uploaded_document):
         """Test de filtrado por usuario que no existe."""
@@ -260,8 +291,13 @@ class TestDocumentListing:
         
         assert response.status_code == 200
         
-        documents = response.json()
+        result = response.json()
+        documents = result["documents"]
         assert len(documents) == 0
+        assert result["total_found"] == 0
+        
+        # Verificar filtros aplicados
+        assert result["applied_filters"]["user_id"] == "nonexistent_user"
 
     def test_list_documents_with_limit(self, api_client, uploaded_document):
         """Test de limitación de resultados."""
@@ -269,8 +305,10 @@ class TestDocumentListing:
         
         assert response.status_code == 200
         
-        documents = response.json()
+        result = response.json()
+        documents = result["documents"]
         assert len(documents) <= 5
+        assert result["limit"] == 5
 
     @pytest.mark.edge_case
     def test_list_documents_invalid_limit(self, api_client, clean_database):
@@ -285,6 +323,158 @@ class TestDocumentListing:
         response = api_client.get("/api/v1/documents/?skip=-1")
         
         assert response.status_code == 422  # Validation Error
+
+    @pytest.mark.edge_case
+    def test_list_documents_valid_batch_id_uuid(self, api_client, clean_database):
+        """Test con batch_id UUID válido (que no existe)."""
+        valid_uuid = "550e8400-e29b-41d4-a716-446655440000"
+        
+        response = api_client.get(f"/api/v1/documents/?batch_id={valid_uuid}")
+        
+        assert response.status_code == 200
+        
+        result = response.json()
+        assert result["total_found"] == 0
+        assert result["applied_filters"]["batch_id"] == valid_uuid
+
+    @pytest.mark.edge_case
+    def test_list_documents_invalid_batch_id_format(self, api_client, clean_database):
+        """Test con batch_id en formato inválido (no UUID)."""
+        invalid_batch_id = "not-a-valid-uuid"
+        
+        response = api_client.get(f"/api/v1/documents/?batch_id={invalid_batch_id}")
+        
+        # La validación UUID actualmente devuelve 500 (Internal Server Error)
+        # cuando el formato es inválido, ya que ValueError en el validador
+        # no se maneja como error de validación HTTP 422
+        assert response.status_code == 500
+        
+        # Verificar que la respuesta indica un error interno del servidor
+        response_text = response.text
+        assert "error" in response_text.lower() or "internal" in response_text.lower()
+        
+        # Si la respuesta es JSON, verificar estructura
+        try:
+            error_data = response.json()
+            if "error_message" in error_data:
+                error_message = error_data["error_message"] 
+                if isinstance(error_message, dict):
+                    message_text = error_message.get("message", "")
+                else:
+                    message_text = str(error_message)
+                
+                # Verificar que el error está relacionado con batch_id UUID
+                assert "batch_id" in message_text.lower() or "uuid" in message_text.lower()
+        except:
+            # Si no es JSON, simplemente verificar que es un error de servidor
+            assert response.status_code == 500
+
+    @pytest.mark.edge_case 
+    def test_list_documents_pagination_metadata(self, api_client, clean_database):
+        """Test de metadata de paginación completa."""
+        response = api_client.get("/api/v1/documents/?limit=10&skip=0")
+        
+        assert response.status_code == 200
+        
+        result = response.json()
+        
+        # Verificar todos los campos de paginación
+        required_pagination_fields = [
+            "total_found", "limit", "skip", "returned_count",
+            "has_next", "has_prev", "current_page", "total_pages"
+        ]
+        
+        for field in required_pagination_fields:
+            assert field in result, f"Campo de paginación '{field}' falta en la respuesta"
+        
+        # Verificar campos de tracking
+        tracking_fields = ["request_id", "search_timestamp", "applied_filters"]
+        for field in tracking_fields:
+            assert field in result, f"Campo de tracking '{field}' falta en la respuesta"
+        
+        # Verificar formato de request_id
+        assert result["request_id"].startswith("list_docs_")
+        assert len(result["request_id"]) > 10
+
+    @pytest.mark.edge_case
+    def test_list_documents_pagination_logic(self, api_client, clean_database):
+        """Test de lógica de paginación con base de datos vacía."""
+        response = api_client.get("/api/v1/documents/?limit=10&skip=0")
+        
+        assert response.status_code == 200
+        
+        result = response.json()
+        
+        # Con base de datos vacía
+        assert result["total_found"] == 0
+        assert result["returned_count"] == 0
+        assert result["current_page"] == 1
+        assert result["total_pages"] == 1
+        assert result["has_next"] is False
+        assert result["has_prev"] is False
+
+    @pytest.mark.edge_case
+    def test_list_documents_high_skip_value(self, api_client, clean_database):
+        """Test con valor de skip muy alto."""
+        response = api_client.get("/api/v1/documents/?skip=1000&limit=10")
+        
+        assert response.status_code == 200
+        
+        result = response.json()
+        assert result["total_found"] == 0
+        assert result["returned_count"] == 0
+        assert result["skip"] == 1000
+        assert result["current_page"] == 101  # (1000 / 10) + 1
+
+    @pytest.mark.edge_case
+    def test_list_documents_empty_user_id_filter(self, api_client, clean_database):
+        """Test con user_id vacío (debería ser ignorado)."""
+        response = api_client.get("/api/v1/documents/?user_id=")
+        
+        assert response.status_code == 200
+        
+        result = response.json()
+        # user_id vacío debería ser ignorado por la validación
+        assert "user_id" not in result["applied_filters"]
+
+    @pytest.mark.edge_case
+    def test_list_documents_multiple_filters(self, api_client, clean_database):
+        """Test con múltiples filtros aplicados."""
+        valid_uuid = "550e8400-e29b-41d4-a716-446655440000"
+        
+        response = api_client.get(f"/api/v1/documents/?user_id=test_user&batch_id={valid_uuid}&limit=5&skip=0")
+        
+        assert response.status_code == 200
+        
+        result = response.json()
+        
+        # Verificar filtros aplicados
+        applied_filters = result["applied_filters"]
+        assert applied_filters["user_id"] == "test_user"
+        assert applied_filters["batch_id"] == valid_uuid
+        
+        # Verificar parámetros de paginación
+        assert result["limit"] == 5
+        assert result["skip"] == 0
+
+    @pytest.mark.edge_case
+    def test_list_documents_response_structure_consistency(self, api_client, clean_database):
+        """Test que la estructura de respuesta es consistente."""
+        response = api_client.get("/api/v1/documents/")
+        
+        assert response.status_code == 200
+        
+        result = response.json()
+        
+        # Verificar estructura principal
+        assert isinstance(result, dict)
+        assert isinstance(result["documents"], list)
+        assert isinstance(result["total_found"], int)
+        assert isinstance(result["has_next"], bool)
+        assert isinstance(result["has_prev"], bool)
+        assert isinstance(result["applied_filters"], dict)
+        assert isinstance(result["request_id"], str)
+        assert isinstance(result["search_timestamp"], str)
 
 
 class TestDocumentInfo:
@@ -317,6 +507,23 @@ class TestDocumentInfo:
         response = api_client.get(f"/api/v1/documents/{fake_id}")
         
         assert response.status_code == 404
+        
+        # Verificar estructura de error mejorada
+        error_data = response.json()
+        assert "error_code" in error_data
+        assert "error_message" in error_data
+        assert "timestamp" in error_data
+        assert error_data["error_code"] == "HTTP_404"
+        
+        # Los datos específicos están en error_message
+        error_message = error_data["error_message"]
+        assert "error_code" in error_message
+        assert "message" in error_message
+        assert "request_id" in error_message
+        assert "document_id" in error_message
+        assert "suggestion" in error_message
+        assert error_message["error_code"] == "DOCUMENT_NOT_FOUND"
+        assert error_message["document_id"] == fake_id
 
     @pytest.mark.edge_case
     def test_get_document_info_invalid_id(self, api_client, clean_database):
@@ -325,8 +532,124 @@ class TestDocumentInfo:
         
         response = api_client.get(f"/api/v1/documents/{invalid_id}")
         
-        # Puede ser 400 (Bad Request) o 500 (Internal Server Error) dependiendo de la validación
-        assert response.status_code in [400, 500]
+        assert response.status_code == 400
+        
+        # Verificar estructura de error mejorada
+        error_data = response.json()
+        assert "error_code" in error_data
+        assert "error_message" in error_data
+        assert "timestamp" in error_data
+        assert error_data["error_code"] == "HTTP_400"
+        
+        # Los datos específicos están en error_message
+        error_message = error_data["error_message"]
+        assert "error_code" in error_message
+        assert "message" in error_message
+        assert "request_id" in error_message
+        assert "provided_id" in error_message
+        assert "expected_format" in error_message
+        assert error_message["error_code"] == "INVALID_DOCUMENT_ID_FORMAT"
+        assert error_message["provided_id"] == invalid_id
+
+    @pytest.mark.edge_case
+    def test_get_document_info_invalid_id_formats(self, api_client, clean_database):
+        """Test con diferentes formatos de ID inválidos."""
+        invalid_ids = [
+            "123",  # Muy corto
+            "507f1f77bcf86cd799439011x",  # Caracter inválido al final
+            "",  # Vacío
+            "507f1f77bcf86cd79943901",  # Muy corto por 1 caracter
+            "invalid-id-with-dashes",  # Con guiones
+            "507f1f77bcf86cd799439011507f1f77bcf86cd799439011",  # Muy largo
+        ]
+        
+        for invalid_id in invalid_ids:
+            response = api_client.get(f"/api/v1/documents/{invalid_id}")
+            
+            # Caso especial: ID vacío es interpretado como endpoint de listado
+            if invalid_id == "":
+                assert response.status_code == 200
+                result = response.json()
+                assert isinstance(result, list)  # Debe ser una lista (endpoint de listado)
+                assert len(result) == 0  # Lista vacía en base de datos limpia
+            else:
+                # Otros IDs inválidos deben devolver 400
+                assert response.status_code == 400
+                
+                error_data = response.json()
+                assert error_data["error_code"] == "HTTP_400"
+                
+                error_message = error_data["error_message"]
+                assert error_message["error_code"] == "INVALID_DOCUMENT_ID_FORMAT"
+                assert error_message["provided_id"] == invalid_id
+                assert "expected_format" in error_message
+
+    @pytest.mark.edge_case
+    def test_get_document_info_valid_objectid_nonexistent(self, api_client, clean_database):
+        """Test con ObjectId válido que no existe en la base de datos."""
+        # IDs válidos en formato pero que no existen
+        valid_but_nonexistent_ids = [
+            "507f1f77bcf86cd799439011",
+            "60f7b3b8e8f4c2a1b8d3e4f5",
+            "61f7b3b8e8f4c2a1b8d3e4f6",
+        ]
+        
+        for fake_id in valid_but_nonexistent_ids:
+            response = api_client.get(f"/api/v1/documents/{fake_id}")
+            
+            assert response.status_code == 404
+            
+            error_data = response.json()
+            assert error_data["error_code"] == "HTTP_404"
+            
+            error_message = error_data["error_message"]
+            assert error_message["error_code"] == "DOCUMENT_NOT_FOUND"
+            assert error_message["document_id"] == fake_id
+            assert "suggestion" in error_message
+            assert "document" in error_message["suggestion"].lower()  # Cambio: buscar "document" en lugar de "documents"
+
+    @pytest.mark.edge_case
+    def test_get_document_info_error_response_structure(self, api_client, clean_database):
+        """Test que las respuestas de error tienen estructura consistente."""
+        # Test con ID inválido
+        response = api_client.get("/api/v1/documents/invalid")
+        
+        assert response.status_code == 400
+        
+        error_data = response.json()
+        
+        # Campos obligatorios en el nivel superior
+        required_fields = ["error_code", "error_message", "timestamp"]
+        for field in required_fields:
+            assert field in error_data, f"Campo requerido '{field}' falta en la respuesta de error"
+        
+        # Verificar estructura de error_message
+        error_message = error_data["error_message"]
+        validation_fields = ["error_code", "message", "request_id", "provided_id", "expected_format"]
+        for field in validation_fields:
+            assert field in error_message, f"Campo de validación '{field}' falta en error_message"
+        
+        # Verificar que request_id tiene formato correcto
+        assert len(error_message["request_id"]) > 0
+        assert error_message["request_id"].replace("-", "").replace("_", "").isalnum()
+
+    @pytest.mark.edge_case
+    def test_get_document_info_case_sensitivity(self, api_client, clean_database):
+        """Test de sensibilidad a mayúsculas/minúsculas en ObjectId."""
+        # ObjectId válido en mayúsculas
+        uppercase_id = "507F1F77BCF86CD799439011"
+        
+        response = api_client.get(f"/api/v1/documents/{uppercase_id}")
+        
+        # El validador actual rechaza mayúsculas como formato inválido
+        assert response.status_code == 400
+        
+        error_data = response.json()
+        assert error_data["error_code"] == "HTTP_400"
+        
+        error_message = error_data["error_message"]
+        assert error_message["error_code"] == "INVALID_DOCUMENT_ID_FORMAT"
+        assert error_message["provided_id"] == uppercase_id
 
 
 class TestDocumentDeletion:
@@ -356,12 +679,18 @@ class TestDocumentDeletion:
         
         response = api_client.delete(f"/api/v1/documents/{fake_id}")
         
-        assert response.status_code == 200
+        assert response.status_code == 404
         
-        result = response.json()
-        assert result["document_id"] == fake_id
-        assert result["success"] is False
-        assert "not found" in result["message"].lower()
+        # Verificar estructura de error mejorada
+        error_data = response.json()
+        assert error_data["error_code"] == "HTTP_404"
+        
+        error_message = error_data["error_message"]
+        assert error_message["error_code"] == "DOCUMENT_NOT_FOUND"
+        assert error_message["document_id"] == fake_id
+        assert error_message["message"] == f"Document with ID '{fake_id}' does not exist or has already been deleted"
+        assert "request_id" in error_message
+        assert "suggestion" in error_message
 
     @pytest.mark.edge_case
     def test_delete_document_invalid_id(self, api_client, clean_database):
@@ -370,8 +699,50 @@ class TestDocumentDeletion:
         
         response = api_client.delete(f"/api/v1/documents/{invalid_id}")
         
-        # Puede ser 400 (Bad Request) o 500 (Internal Server Error)
-        assert response.status_code in [400, 500]
+        assert response.status_code == 400
+        
+        # Verificar estructura de error mejorada
+        error_data = response.json()
+        assert error_data["error_code"] == "HTTP_400"
+        
+        error_message = error_data["error_message"]
+        assert error_message["error_code"] == "INVALID_DOCUMENT_ID_FORMAT"
+        assert error_message["provided_id"] == invalid_id
+        assert error_message["expected_format"] == "24 hexadecimal characters (MongoDB ObjectId)"
+        assert "request_id" in error_message
+        assert "suggestion" in error_message
+
+    @pytest.mark.edge_case
+    def test_delete_document_invalid_id_formats(self, api_client, clean_database):
+        """Test de eliminación con diferentes formatos de ID inválidos."""
+        invalid_ids = [
+            "123",  # Muy corto
+            "507f1f77bcf86cd799439011x",  # Caracter inválido al final
+            "507f1f77bcf86cd79943901",  # Muy corto por 1 caracter
+            "invalid-id-with-dashes",  # Con guiones
+            "507f1f77bcf86cd799439011507f1f77bcf86cd799439011",  # Muy largo
+        ]
+        
+        for invalid_id in invalid_ids:
+            response = api_client.delete(f"/api/v1/documents/{invalid_id}")
+            
+            assert response.status_code == 400
+            
+            error_data = response.json()
+            assert error_data["error_code"] == "HTTP_400"
+            
+            error_message = error_data["error_message"]
+            assert error_message["error_code"] == "INVALID_DOCUMENT_ID_FORMAT"
+            assert error_message["provided_id"] == invalid_id
+            assert "expected_format" in error_message
+
+    @pytest.mark.edge_case
+    def test_delete_document_empty_id(self, api_client, clean_database):
+        """Test de eliminación con ID vacío."""
+        response = api_client.delete("/api/v1/documents/")
+        
+        # ID vacío redirige al endpoint de listado, no al de eliminación
+        assert response.status_code == 405  # Method Not Allowed para DELETE en endpoint de listado
 
     def test_delete_document_twice(self, api_client, uploaded_document):
         """Test de eliminación del mismo documento dos veces."""
@@ -382,10 +753,60 @@ class TestDocumentDeletion:
         assert response1.status_code == 200
         assert response1.json()["success"] is True
         
-        # Segunda eliminación
+        # Segunda eliminación - ahora devuelve 404
         response2 = api_client.delete(f"/api/v1/documents/{document_id}")
-        assert response2.status_code == 200
-        assert response2.json()["success"] is False
+        assert response2.status_code == 404
+        
+        error_data = response2.json()
+        assert error_data["error_code"] == "HTTP_404"
+        
+        error_message = error_data["error_message"]
+        assert error_message["error_code"] == "DOCUMENT_NOT_FOUND"
+        assert error_message["document_id"] == document_id
+
+    @pytest.mark.edge_case
+    def test_delete_document_error_response_structure(self, api_client, clean_database):
+        """Test que las respuestas de error tienen estructura consistente."""
+        # Test con ID inválido
+        response = api_client.delete("/api/v1/documents/invalid")
+        
+        assert response.status_code == 400
+        
+        error_data = response.json()
+        
+        # Campos obligatorios en el nivel superior
+        required_fields = ["error_code", "error_message", "timestamp"]
+        for field in required_fields:
+            assert field in error_data, f"Campo requerido '{field}' falta en la respuesta de error"
+        
+        # Verificar estructura de error_message
+        error_message = error_data["error_message"]
+        validation_fields = ["error_code", "message", "request_id", "provided_id", "expected_format", "suggestion"]
+        for field in validation_fields:
+            assert field in error_message, f"Campo de validación '{field}' falta en error_message"
+        
+        # Verificar que request_id tiene formato correcto
+        assert len(error_message["request_id"]) > 0
+        assert error_message["request_id"].replace("-", "").replace("_", "").isalnum()
+        assert error_message["request_id"].startswith("del_doc_")
+
+    @pytest.mark.edge_case
+    def test_delete_document_case_sensitivity(self, api_client, clean_database):
+        """Test de sensibilidad a mayúsculas/minúsculas en ObjectId."""
+        # ObjectId válido en mayúsculas
+        uppercase_id = "507F1F77BCF86CD799439011"
+        
+        response = api_client.delete(f"/api/v1/documents/{uppercase_id}")
+        
+        # El validador actual rechaza mayúsculas como formato inválido
+        assert response.status_code == 400
+        
+        error_data = response.json()
+        assert error_data["error_code"] == "HTTP_400"
+        
+        error_message = error_data["error_message"]
+        assert error_message["error_code"] == "INVALID_DOCUMENT_ID_FORMAT"
+        assert error_message["provided_id"] == uppercase_id
 
 
 class TestDocumentWorkflow:

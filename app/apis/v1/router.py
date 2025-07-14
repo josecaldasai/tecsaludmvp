@@ -4,7 +4,7 @@ import json
 import logging
 from typing import List, Optional, Any
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Depends
-
+from datetime import datetime
 
 from app.apis.v1.types_in import (
     DocumentUploadData,
@@ -19,11 +19,15 @@ from app.apis.v1.types_out import (
     DocumentInfoResponse,
     BatchUploadResponse,
     DocumentDeleteResponse,
+    DocumentSearchResponse,
 )
 from app.core.v1.document_processor import DocumentProcessor
 from app.core.v1.exceptions import (
-    DocumentProcessorException
+    DocumentProcessorException,
+    DatabaseException,
+    ValidationException
 )
+from app.core.v1.validators import DocumentValidator
 from app.core.v1.log_manager import LogManager
 
 # Initialize router
@@ -191,57 +195,161 @@ def get_search_params(
     return validate_search_params(user_id, batch_id, limit, skip)
 
 
-@router.get("/", response_model=List[DocumentInfoResponse])
+@router.get("/", response_model=DocumentSearchResponse)
 async def list_documents(
     params: DocumentSearchParams = Depends(get_search_params)
 ):
     """
     List documents with optional filtering by user or batch.
     
+    This endpoint provides comprehensive document listing with enhanced pagination,
+    filtering capabilities, and specific error handling.
+    
     Args:
         params: Validated search parameters (user_id, batch_id, limit, skip)
     
     Returns:
-        List[DocumentInfoResponse]: List of documents
+        DocumentSearchResponse: Paginated list of documents with metadata
+        
+    Raises:
+        400 Bad Request: Invalid search parameters (e.g., invalid UUID for batch_id)
+        503 Service Unavailable: Database connection issues
     """
+    # Generate request ID for tracking
+    request_id = f"list_docs_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{params.limit}_{params.skip}"
+    search_timestamp = datetime.now().isoformat()
+    
     try:
         logger.info(
-            "Listing documents",
+            "Starting document listing",
+            request_id=request_id,
             user_id=params.user_id,
             batch_id=params.batch_id,
             limit=params.limit,
             skip=params.skip
         )
         
-        # Build query
+        # Build query filters
         query = {}
+        applied_filters = {}
+        
         if params.user_id:
             query["user_id"] = params.user_id
+            applied_filters["user_id"] = params.user_id
+            
         if params.batch_id:
             query["batch_info.batch_id"] = params.batch_id
+            applied_filters["batch_id"] = params.batch_id
         
-        # Execute search
-        results = document_processor.search_documents(
-            query=query,
-            limit=params.limit,
-            skip=params.skip
+        # Log applied filters
+        logger.info(
+            "Applying search filters",
+            request_id=request_id,
+            applied_filters=applied_filters,
+            total_filters=len(applied_filters)
         )
+        
+        # Execute search with error handling
+        try:
+            results = document_processor.search_documents(
+                query=query,
+                limit=params.limit,
+                skip=params.skip
+            )
+            
+        except DatabaseException as err:
+            # Database connectivity or query issues
+            logger.error(
+                "Database error during document listing",
+                request_id=request_id,
+                applied_filters=applied_filters,
+                error=str(err)
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error_code": "DATABASE_SERVICE_UNAVAILABLE",
+                    "message": "Database service is temporarily unavailable",
+                    "request_id": request_id,
+                    "suggestion": "Please try again in a few moments"
+                }
+            )
+            
+        except DocumentProcessorException as err:
+            # Document processing specific error
+            logger.error(
+                "Document processor error during listing",
+                request_id=request_id,
+                applied_filters=applied_filters,
+                error=str(err)
+            )
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error_code": "DOCUMENT_PROCESSING_ERROR",
+                    "message": f"Failed to process document search: {str(err)}",
+                    "request_id": request_id,
+                    "suggestion": "Please try again or contact support if the issue persists"
+                }
+            )
+        
+        # Calculate pagination metadata
+        total_found = results["total_found"]
+        returned_count = len(results["documents"])
+        current_page = (params.skip // params.limit) + 1
+        total_pages = (total_found + params.limit - 1) // params.limit if total_found > 0 else 1
+        has_next = (params.skip + params.limit) < total_found
+        has_prev = params.skip > 0
         
         logger.info(
-            "Documents listed successfully",
-            total_found=results["total_found"],
-            user_id=params.user_id,
-            batch_id=params.batch_id
+            "Document listing completed successfully",
+            request_id=request_id,
+            total_found=total_found,
+            returned_count=returned_count,
+            current_page=current_page,
+            total_pages=total_pages,
+            has_next=has_next,
+            has_prev=has_prev,
+            applied_filters=applied_filters
         )
         
-        return results["documents"]
+        # Build comprehensive response
+        return DocumentSearchResponse(
+            documents=results["documents"],
+            total_found=total_found,
+            limit=params.limit,
+            skip=params.skip,
+            returned_count=returned_count,
+            has_next=has_next,
+            has_prev=has_prev,
+            current_page=current_page,
+            total_pages=total_pages,
+            applied_filters=applied_filters,
+            request_id=request_id,
+            search_timestamp=search_timestamp
+        )
         
-    except DocumentProcessorException as err:
-        logger.error(f"Failed to list documents: {err}")
-        raise HTTPException(status_code=500, detail=f"Failed to list documents: {err}")
+    except HTTPException:
+        # Re-raise HTTP exceptions (already handled above)
+        raise
     except Exception as err:
-        logger.error(f"Unexpected error listing documents: {err}")
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {err}")
+        # Unexpected error - log and return generic error
+        logger.error(
+            "Unexpected error during document listing",
+            request_id=request_id,
+            user_id=params.user_id,
+            batch_id=params.batch_id,
+            error=str(err)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "INTERNAL_SERVER_ERROR",
+                "message": "An unexpected error occurred during document listing",
+                "request_id": request_id,
+                "suggestion": "Please try again or contact support if the issue persists"
+            }
+        )
 
 
 @router.get("/{document_id}", response_model=DocumentInfoResponse)
@@ -249,39 +357,124 @@ async def get_document_info(document_id: str):
     """
     Get information about a specific document.
     
+    This endpoint retrieves detailed information about a document by its ID.
+    It includes comprehensive validation and specific error handling.
+    
     Args:
-        document_id: Unique document identifier
+        document_id: Unique document identifier (MongoDB ObjectId format)
     
     Returns:
-        DocumentInfoResponse: Document information
+        DocumentInfoResponse: Complete document information
+        
+    Raises:
+        400 Bad Request: Invalid document ID format
+        404 Not Found: Document not found
+        503 Service Unavailable: Database connection issues
     """
+    # Generate request ID for tracking
+    request_id = f"get_doc_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{document_id[:8]}"
+    
     try:
         logger.info(
-            "Getting document info",
+            "Starting document info retrieval",
+            request_id=request_id,
             document_id=document_id
         )
         
-        document_info = document_processor.get_document_info(document_id)
-        
-        if not document_info:
+        # Step 1: Validate document ID format
+        try:
+            validated_document_id = DocumentValidator.validate_document_id(document_id)
+        except ValidationException as err:
+            logger.warning(
+                "Invalid document ID format provided",
+                request_id=request_id,
+                document_id=document_id,
+                error=str(err)
+            )
             raise HTTPException(
-                status_code=404,
-                detail=f"Document with ID {document_id} not found"
+                status_code=400,
+                detail={
+                    "error_code": "INVALID_DOCUMENT_ID_FORMAT",
+                    "message": str(err),
+                    "request_id": request_id,
+                    "provided_id": document_id,
+                    "expected_format": "24 hexadecimal characters (MongoDB ObjectId)"
+                }
             )
         
-        logger.info(
-            "Document info retrieved successfully",
-            document_id=document_id
-        )
+        # Step 2: Retrieve document from database
+        try:
+            document_info = document_processor.get_document_info(validated_document_id)
+            
+            logger.info(
+                "Document info retrieved successfully",
+                request_id=request_id,
+                document_id=validated_document_id,
+                filename=document_info.get("filename"),
+                processing_status=document_info.get("processing_status")
+            )
+            
+            return DocumentInfoResponse(**document_info)
+            
+        except DocumentProcessorException as err:
+            # Document not found (most common case)
+            logger.info(
+                "Document not found",
+                request_id=request_id,
+                document_id=validated_document_id,
+                error=str(err)
+            )
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_code": "DOCUMENT_NOT_FOUND",
+                    "message": f"Document with ID '{validated_document_id}' does not exist",
+                    "request_id": request_id,
+                    "document_id": validated_document_id,
+                    "suggestion": "Verify the document ID and ensure the document has not been deleted"
+                }
+            )
+            
+        except DatabaseException as err:
+            # Database connectivity or query issues
+            logger.error(
+                "Database error during document retrieval",
+                request_id=request_id,
+                document_id=validated_document_id,
+                error=str(err)
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error_code": "DATABASE_SERVICE_UNAVAILABLE",
+                    "message": "Database service is temporarily unavailable",
+                    "request_id": request_id,
+                    "suggestion": "Please try again in a few moments"
+                }
+            )
+            
+    except HTTPException:
+        # Re-raise HTTP exceptions (already handled above)
+        raise
         
-        return DocumentInfoResponse(**document_info)
-        
-    except DocumentProcessorException as err:
-        logger.error(f"Failed to get document info: {err}")
-        raise HTTPException(status_code=500, detail=f"Failed to get document info: {err}")
     except Exception as err:
-        logger.error(f"Unexpected error getting document info: {err}")
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {err}")
+        # Unexpected errors
+        logger.error(
+            "Unexpected error during document retrieval",
+            request_id=request_id,
+            document_id=document_id,
+            error=str(err),
+            error_type=type(err).__name__
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "INTERNAL_SERVER_ERROR",
+                "message": "An unexpected error occurred",
+                "request_id": request_id,
+                "suggestion": "Please contact support if this error persists"
+            }
+        )
 
 
 @router.delete("/{document_id}", response_model=DocumentDeleteResponse)
@@ -290,43 +483,138 @@ async def delete_document(document_id: str):
     Delete a document completely.
     
     This removes the document from both MongoDB and Azure Storage.
+    It includes comprehensive validation and specific error handling.
     
     Args:
-        document_id: Unique document identifier
+        document_id: Unique document identifier (MongoDB ObjectId format)
     
     Returns:
         DocumentDeleteResponse: Deletion result
+        
+    Raises:
+        400 Bad Request: Invalid document ID format
+        404 Not Found: Document not found
+        503 Service Unavailable: Database connection issues
     """
+    # Generate request ID for tracking
+    request_id = f"del_doc_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{document_id[:8]}"
+    
     try:
         logger.info(
             "Starting document deletion",
+            request_id=request_id,
             document_id=document_id
         )
         
-        success = document_processor.delete_document(document_id)
-        
-        if success:
-            message = "Document deleted successfully"
-            logger.info(
-                "Document deleted successfully",
-                document_id=document_id
-            )
-        else:
-            message = "Document not found"
+        # Step 1: Validate document ID format
+        try:
+            validated_document_id = DocumentValidator.validate_document_id(document_id)
+        except ValidationException as err:
             logger.warning(
-                "Document not found for deletion",
-                document_id=document_id
+                "Invalid document ID format provided for deletion",
+                request_id=request_id,
+                document_id=document_id,
+                error=str(err)
+            )
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": "INVALID_DOCUMENT_ID_FORMAT",
+                    "message": str(err),
+                    "request_id": request_id,
+                    "provided_id": document_id,
+                    "expected_format": "24 hexadecimal characters (MongoDB ObjectId)",
+                    "suggestion": "Ensure you're using a valid MongoDB ObjectId format"
+                }
             )
         
-        return DocumentDeleteResponse(
-            document_id=document_id,
-            success=success,
-            message=message
-        )
-        
-    except DocumentProcessorException as err:
-        logger.error(f"Deletion failed: {err}")
-        raise HTTPException(status_code=500, detail=f"Deletion failed: {err}")
+        # Step 2: Delete document
+        try:
+            success = document_processor.delete_document(validated_document_id)
+            
+            if success:
+                logger.info(
+                    "Document deleted successfully",
+                    request_id=request_id,
+                    document_id=validated_document_id
+                )
+                
+                return DocumentDeleteResponse(
+                    document_id=validated_document_id,
+                    success=True,
+                    message="Document deleted successfully"
+                )
+            else:
+                # Document not found - return 404 instead of success=false
+                logger.info(
+                    "Document not found for deletion",
+                    request_id=request_id,
+                    document_id=validated_document_id
+                )
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "error_code": "DOCUMENT_NOT_FOUND",
+                        "message": f"Document with ID '{validated_document_id}' does not exist or has already been deleted",
+                        "request_id": request_id,
+                        "document_id": validated_document_id,
+                        "suggestion": "Verify the document ID and ensure the document exists"
+                    }
+                )
+                
+        except DocumentProcessorException as err:
+            # Document-specific processing error
+            logger.error(
+                "Document processing error during deletion",
+                request_id=request_id,
+                document_id=validated_document_id,
+                error=str(err)
+            )
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error_code": "DOCUMENT_PROCESSING_ERROR",
+                    "message": f"Failed to process document deletion: {str(err)}",
+                    "request_id": request_id,
+                    "suggestion": "Please try again in a few moments"
+                }
+            )
+            
+        except DatabaseException as err:
+            # Database connectivity or query issues
+            logger.error(
+                "Database error during document deletion",
+                request_id=request_id,
+                document_id=validated_document_id,
+                error=str(err)
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error_code": "DATABASE_SERVICE_UNAVAILABLE",
+                    "message": "Database service is temporarily unavailable",
+                    "request_id": request_id,
+                    "suggestion": "Please try again in a few moments"
+                }
+            )
+            
+    except HTTPException:
+        # Re-raise HTTP exceptions (already handled above)
+        raise
     except Exception as err:
-        logger.error(f"Unexpected error during deletion: {err}")
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {err}")
+        # Unexpected error - log and return generic error
+        logger.error(
+            "Unexpected error during document deletion",
+            request_id=request_id,
+            document_id=document_id,
+            error=str(err)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "INTERNAL_SERVER_ERROR",
+                "message": "An unexpected error occurred during document deletion",
+                "request_id": request_id,
+                "suggestion": "Please try again or contact support if the issue persists"
+            }
+        )

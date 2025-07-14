@@ -384,6 +384,41 @@ class MongoDBManager:
             self.logger.error(f"Unexpected error searching documents: {err}")
             raise DatabaseException(f"Unexpected document search error: {err}") from err
 
+    def count_documents(self, query: Optional[Dict[str, Any]] = None) -> int:
+        """Count documents in MongoDB that match the query.
+        
+        Args:
+            query (Optional[Dict[str, Any]]): MongoDB query filter.
+            
+        Returns:
+            int: Number of matching documents.
+            
+        Raises:
+            DatabaseException: If count fails.
+        """
+        try:
+            # Default query
+            if query is None:
+                query = {}
+            
+            # Execute count
+            count = self.documents_col.count_documents(query)
+            
+            self.logger.info(
+                "Document count completed",
+                query=query,
+                count=count
+            )
+            
+            return count
+            
+        except PyMongoError as err:
+            self.logger.error(f"Failed to count documents: {err}")
+            raise DatabaseException(f"Document count failed: {err}") from err
+        except Exception as err:
+            self.logger.error(f"Unexpected error counting documents: {err}")
+            raise DatabaseException(f"Unexpected document count error: {err}") from err
+
     def close(self):
         """
         Close MongoDB connection.

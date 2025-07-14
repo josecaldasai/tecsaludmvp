@@ -680,7 +680,7 @@ class DocumentProcessor:
             )
             raise DocumentProcessorException(f"Optimized batch processing failed: {err}") from err
 
-    def get_document_info(self, document_id: str) -> Optional[Dict[str, Any]]:
+    def get_document_info(self, document_id: str) -> Dict[str, Any]:
         """
         Get document information by ID.
         
@@ -688,10 +688,11 @@ class DocumentProcessor:
             document_id (str): Document ID.
             
         Returns:
-            Optional[Dict[str, Any]]: Document information or None if not found.
+            Dict[str, Any]: Document information.
             
         Raises:
-            DocumentProcessorException: If retrieval fails.
+            DocumentProcessorException: If document not found or retrieval fails.
+            DatabaseException: If database connection/query fails.
         """
         try:
             self.logger.info(
@@ -703,11 +704,11 @@ class DocumentProcessor:
             document = self.mongodb_manager.get_document(document_id)
             
             if not document:
-                self.logger.info(
+                self.logger.warning(
                     "Document not found",
                     document_id=document_id
                 )
-                return None
+                raise DocumentProcessorException(f"Document not found: {document_id}")
             
             # Prepare response
             response = {
@@ -743,11 +744,12 @@ class DocumentProcessor:
             
         except DatabaseException as err:
             self.logger.error(
-                "Failed to retrieve document information",
+                "Database error while retrieving document information",
                 document_id=document_id,
                 error=str(err)
             )
-            raise DocumentProcessorException(f"Document retrieval failed: {err}") from err
+            # Re-raise DatabaseException to be handled specifically in the API layer
+            raise
         except Exception as err:
             self.logger.error(
                 "Unexpected error retrieving document information",
@@ -784,7 +786,10 @@ class DocumentProcessor:
                 skip=skip
             )
             
-            # Search documents in MongoDB
+            # Get total count of matching documents (without limit/skip)
+            total_found = self.mongodb_manager.count_documents(query=query)
+            
+            # Search documents in MongoDB with pagination
             documents = self.mongodb_manager.search_documents(
                 query=query,
                 limit=limit,
@@ -819,7 +824,7 @@ class DocumentProcessor:
                 })
             
             search_results = {
-                "total_found": len(results),
+                "total_found": total_found,
                 "documents": results,
                 "limit": limit,
                 "skip": skip
@@ -827,7 +832,8 @@ class DocumentProcessor:
             
             self.logger.info(
                 "Document search completed",
-                total_found=len(results),
+                total_found=total_found,
+                returned_count=len(results),
                 limit=limit,
                 skip=skip
             )

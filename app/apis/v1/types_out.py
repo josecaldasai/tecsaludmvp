@@ -165,14 +165,16 @@ class DocumentInfoResponse(BaseModel):
 
 
 class DocumentSearchResponse(BaseModel):
-    """Response schema for document search."""
+    """Response schema for document search with enhanced pagination metadata."""
     
-    total_found: int = Field(
-        description="Total number of documents found"
-    )
-    
+    # Results
     documents: List[DocumentInfoResponse] = Field(
         description="List of matching documents"
+    )
+    
+    # Pagination metadata
+    total_found: int = Field(
+        description="Total number of documents found"
     )
     
     limit: int = Field(
@@ -181,6 +183,39 @@ class DocumentSearchResponse(BaseModel):
     
     skip: int = Field(
         description="Number of results skipped"
+    )
+    
+    returned_count: int = Field(
+        description="Actual number of documents returned in this response"
+    )
+    
+    has_next: bool = Field(
+        description="Whether there are more results available"
+    )
+    
+    has_prev: bool = Field(
+        description="Whether there are previous results available"
+    )
+    
+    current_page: int = Field(
+        description="Current page number (1-based)"
+    )
+    
+    total_pages: int = Field(
+        description="Total number of pages available"
+    )
+    
+    # Query context
+    applied_filters: Dict[str, Any] = Field(
+        description="Filters that were applied to the search"
+    )
+    
+    request_id: str = Field(
+        description="Unique request identifier for tracking"
+    )
+    
+    search_timestamp: str = Field(
+        description="Timestamp when the search was performed"
     )
 
 
