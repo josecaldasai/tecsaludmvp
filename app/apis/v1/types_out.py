@@ -953,3 +953,25 @@ class PillCategoriesResponse(BaseModel):
     count: int = Field(
         description="Number of available categories"
     ) 
+
+
+# ============================================================================
+# STATISTICS API RESPONSE TYPES
+# ============================================================================
+
+class PlatformOverviewStatsResponse(BaseModel):
+    """Response schema for platform-wide statistics."""
+    
+    model_config = {"validate_assignment": True}
+    
+    totals: Dict[str, Any] = Field(
+        description="Total counts across the platform"
+    )
+    
+    storage: Dict[str, Any] = Field(
+        description="Storage usage statistics"
+    )
+    
+    period: Dict[str, Any] = Field(
+        description="Time period information for filtering"
+    ) 

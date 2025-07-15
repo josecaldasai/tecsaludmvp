@@ -370,6 +370,10 @@ app.include_router(tokens_router, prefix="/api/v1/tokens", tags=["tokens"])
 from app.apis.v1.pills_router import router as pills_router
 app.include_router(pills_router, prefix="/api/v1/pills", tags=["pills"])
 
+# Import and include statistics router
+from app.apis.v1.statistics_router import router as statistics_router
+app.include_router(statistics_router, prefix="/api/v1/statistics", tags=["statistics"])
+
 
 # Root endpoint
 @app.get("/", tags=["health"])

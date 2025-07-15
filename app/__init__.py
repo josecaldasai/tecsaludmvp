@@ -58,6 +58,10 @@ TAGS_METADATA = [
         "description": "Administración de pastillas (templates de botones prefabricados tipo starters de Chainlit)",
     },
     {
+        "name": "statistics",
+        "description": "Analytics y estadísticas de uso de usuarios y plataforma para dashboards administrativos",
+    },
+    {
         "name": "health",
         "description": "Endpoints para verificar el estado de la aplicación",
     },
