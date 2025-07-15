@@ -3,6 +3,7 @@
 import uuid
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
+import threading
 
 from app.core.v1.exceptions import ChatException
 from app.core.v1.log_manager import LogManager
@@ -13,10 +14,27 @@ from pymongo import MongoClient
 class InteractionManager:
     """
     Interaction Manager for handling chat interactions in MongoDB.
+    Implements Singleton pattern to ensure only one instance exists.
     """
     
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        """Create singleton instance with thread safety."""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+    
     def __init__(self):
-        """Initialize Interaction Manager."""
+        """Initialize Interaction Manager (only once due to singleton pattern)."""
+        # Only initialize once
+        if hasattr(self, '_initialized') and self._initialized:
+            return
+            
         self.logger = LogManager(__name__)
         
         # MongoDB connection
@@ -31,38 +49,58 @@ class InteractionManager:
         self._create_indexes()
         
         self.logger.info("Interaction Manager initialized successfully")
+        
+        # Mark as initialized
+        self._initialized = True
     
     def _create_indexes(self):
         """Create necessary indexes for interactions collection."""
+        # Get existing indexes
+        existing_indexes = set()
         try:
-            # Create indexes for interactions collection
-            indexes_to_create = [
-                ([("interaction_id", 1)], {"unique": True, "name": "interaction_id_unique"}),
-                ([("session_id", 1)], {"name": "session_id_index"}),
-                ([("user_id", 1)], {"name": "user_id_index"}),
-                ([("document_id", 1)], {"name": "document_id_index"}),
-                ([("created_at", 1)], {"name": "created_at_index"}),
-                ([("session_id", 1), ("created_at", 1)], {"name": "session_chronological_index"}),
-                ([("user_id", 1), ("created_at", 1)], {"name": "user_chronological_index"}),
-                ([("question", "text"), ("response", "text")], {"name": "interaction_text_search"})
-            ]
-            
-            created_count = 0
-            for index_spec, options in indexes_to_create:
-                try:
-                    self.interactions_collection.create_index(
-                        index_spec,
-                        **options
-                    )
-                    created_count += 1
-                except Exception as e:
-                    if "already exists" not in str(e) and "only one text index" not in str(e):
-                        self.logger.warning(f"Failed to create index {options.get('name', 'unknown')}: {e}")
-            
-            self.logger.info(f"Interaction indexes processed successfully (created: {created_count})")
-            
+            indexes_info = self.interactions_collection.list_indexes()
+            for index in indexes_info:
+                existing_indexes.add(index["name"])
         except Exception as err:
-            self.logger.error(f"Failed to create interaction indexes: {err}")
+            self.logger.warning(f"Failed to retrieve existing interaction indexes: {err}")
+        
+        # Define indexes to create
+        indexes_to_create = [
+            ([("interaction_id", 1)], {"unique": True, "name": "interaction_id_unique"}),
+            ([("session_id", 1)], {"name": "session_id_index"}),
+            ([("user_id", 1)], {"name": "user_id_index"}),
+            ([("document_id", 1)], {"name": "document_id_index"}),
+            ([("created_at", 1)], {"name": "created_at_index"}),
+            ([("session_id", 1), ("created_at", 1)], {"name": "session_chronological_index"}),
+            ([("user_id", 1), ("created_at", 1)], {"name": "user_chronological_index"}),
+            ([("question", "text"), ("response", "text")], {"name": "interaction_text_search"})
+        ]
+        
+        created_count = 0
+        existing_count = 0
+        
+        for index_spec, options in indexes_to_create:
+            index_name = options.get('name', 'unnamed')
+            
+            # Check if index already exists
+            if index_name in existing_indexes:
+                existing_count += 1
+                self.logger.debug(f"Interaction index already exists: {index_name}")
+                continue
+            
+            try:
+                self.interactions_collection.create_index(index_spec, **options)
+                created_count += 1
+                self.logger.debug(f"Created interaction index: {index_name}")
+                
+            except Exception as e:
+                if "already exists" not in str(e) and "only one text index" not in str(e):
+                    self.logger.warning(f"Failed to create interaction index {index_name}: {e}")
+                else:
+                    existing_count += 1
+                    self.logger.debug(f"Interaction index already exists (duplicate or text limit): {index_name}")
+        
+        self.logger.info(f"Interaction indexes processed successfully (created: {created_count}, existing: {existing_count}, total attempted: {len(indexes_to_create)})")
     
     def save_interaction(
         self,

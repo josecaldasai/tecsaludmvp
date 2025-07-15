@@ -7,6 +7,7 @@ from pymongo.database import Database
 from pymongo.errors import PyMongoError, DuplicateKeyError
 from bson import ObjectId
 from datetime import datetime
+import threading
 
 from app.settings.v1.general import SETTINGS
 from app.core.v1.exceptions import DatabaseException
@@ -16,12 +17,29 @@ from app.core.v1.log_manager import LogManager
 class MongoDBManager:
     """
     MongoDB Manager for handling document operations.
+    Implements Singleton pattern to ensure only one instance exists.
     """
+    
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        """Create singleton instance with thread safety."""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
 
     def __init__(self):
         """
-        Initialize MongoDB manager.
+        Initialize MongoDB manager (only once due to singleton pattern).
         """
+        # Only initialize once
+        if hasattr(self, '_initialized') and self._initialized:
+            return
+            
         # Initialize logger
         self.logger = LogManager(__name__)
         
@@ -35,6 +53,9 @@ class MongoDBManager:
         
         # Connect to MongoDB
         self._connect()
+        
+        # Mark as initialized
+        self._initialized = True
         
     def _connect(self):
         """
@@ -70,6 +91,16 @@ class MongoDBManager:
         """
         Create necessary indexes for better performance.
         """
+        # Get existing indexes
+        existing_indexes = set()
+        try:
+            indexes_info = self.documents_col.list_indexes()
+            for index in indexes_info:
+                existing_indexes.add(index["name"])
+        except Exception as err:
+            self.logger.warning(f"Failed to retrieve existing indexes: {err}")
+        
+        # Define indexes to create
         indexes_to_create = [
             ([("processing_id", ASCENDING)], {"unique": True, "name": "processing_id_unique"}),
             ([("created_at", ASCENDING)], {"name": "created_at_index"}),
@@ -83,27 +114,42 @@ class MongoDBManager:
             ([("numero_episodio", ASCENDING)], {"sparse": True, "name": "numero_episodio_index"}),
             ([("categoria", ASCENDING)], {"sparse": True, "name": "categoria_index"}),
             ([("medical_info_valid", ASCENDING)], {"sparse": True, "name": "medical_info_valid_index"}),
-            # Índice de texto completo para búsquedas fuzzy en nombre_paciente
-            ([("nombre_paciente", "text")], {"sparse": True, "name": "nombre_paciente_text_index"})
+            # Usar el índice de texto principal para búsquedas fuzzy
+            ([("extracted_text", "text"), ("filename", "text"), ("nombre_paciente", "text")], 
+             {"sparse": True, "name": "text_search_index"})
         ]
         
         created_count = 0
+        existing_count = 0
+        
         for index_spec, options in indexes_to_create:
+            index_name = options.get('name', 'unnamed')
+            
+            # Check if index already exists
+            if index_name in existing_indexes:
+                existing_count += 1
+                self.logger.debug(f"Index already exists: {index_name}")
+                continue
+            
             try:
                 self.documents_col.create_index(index_spec, **options)
                 created_count += 1
-                self.logger.debug(f"Created index: {options.get('name', 'unnamed')}")
+                self.logger.debug(f"Created index: {index_name}")
                 
             except PyMongoError as err:
-                # Log warning but continue with other indexes
+                # Handle specific MongoDB errors
                 if "already exists" in str(err).lower() or "duplicate" in str(err).lower():
-                    self.logger.debug(f"Index already exists (skipping): {options.get('name', 'unnamed')}")
+                    existing_count += 1
+                    self.logger.debug(f"Index already exists (duplicate key): {index_name}")
+                elif "only one text index" in str(err).lower():
+                    existing_count += 1
+                    self.logger.debug(f"Text index already exists, skipping: {index_name}")
                 else:
-                    self.logger.warning(f"Failed to create index {options.get('name', 'unnamed')}: {err}")
+                    self.logger.warning(f"Failed to create index {index_name}: {err}")
             except Exception as err:
-                self.logger.warning(f"Unexpected error creating index {options.get('name', 'unnamed')}: {err}")
+                self.logger.warning(f"Unexpected error creating index {index_name}: {err}")
         
-        self.logger.info(f"MongoDB indexes processed successfully (created: {created_count}, total attempted: {len(indexes_to_create)})")
+        self.logger.info(f"MongoDB indexes processed successfully (created: {created_count}, existing: {existing_count}, total attempted: {len(indexes_to_create)})")
 
     def save_document(self, document: Dict[str, Any]) -> str:
         """Save document to MongoDB.

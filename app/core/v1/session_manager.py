@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from pymongo.errors import PyMongoError, DuplicateKeyError
 from bson import ObjectId
+import threading
 
 
 from app.core.v1.exceptions import DatabaseException, ChatException
@@ -18,10 +19,27 @@ from pymongo.collection import Collection
 class SessionManager:
     """
     Session Manager for handling chat sessions in MongoDB.
+    Implements Singleton pattern to ensure only one instance exists.
     """
     
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        """Create singleton instance with thread safety."""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+    
     def __init__(self):
-        """Initialize Session Manager."""
+        """Initialize Session Manager (only once due to singleton pattern)."""
+        # Only initialize once
+        if hasattr(self, '_initialized') and self._initialized:
+            return
+            
         self.logger = LogManager(__name__)
         
         # MongoDB connection
@@ -36,38 +54,58 @@ class SessionManager:
         self._create_indexes()
         
         self.logger.info("Session Manager initialized successfully")
+        
+        # Mark as initialized
+        self._initialized = True
     
     def _create_indexes(self):
         """Create necessary indexes for sessions collection."""
+        # Get existing indexes
+        existing_indexes = set()
         try:
-            # Create indexes for sessions collection
-            indexes_to_create = [
-                ([("session_id", 1)], {"unique": True, "name": "session_id_unique"}),
-                ([("user_id", 1)], {"name": "user_id_index"}),
-                ([("document_id", 1)], {"name": "document_id_index"}),
-                ([("created_at", 1)], {"name": "created_at_index"}),
-                ([("last_interaction_at", 1)], {"name": "last_interaction_at_index"}),
-                ([("is_active", 1)], {"name": "is_active_index"}),
-                ([("user_id", 1), ("document_id", 1)], {"name": "user_document_index"}),
-                ([("user_id", 1), ("is_active", 1)], {"name": "user_active_sessions_index"})
-            ]
-            
-            created_count = 0
-            for index_spec, options in indexes_to_create:
-                try:
-                    self.sessions_collection.create_index(
-                        index_spec,
-                        **options
-                    )
-                    created_count += 1
-                except Exception as e:
-                    if "already exists" not in str(e):
-                        self.logger.warning(f"Failed to create index {options.get('name', 'unknown')}: {e}")
-            
-            self.logger.info(f"Session indexes processed successfully (created: {created_count})")
-            
+            indexes_info = self.sessions_collection.list_indexes()
+            for index in indexes_info:
+                existing_indexes.add(index["name"])
         except Exception as err:
-            self.logger.error(f"Failed to create session indexes: {err}")
+            self.logger.warning(f"Failed to retrieve existing session indexes: {err}")
+        
+        # Define indexes to create
+        indexes_to_create = [
+            ([("session_id", 1)], {"unique": True, "name": "session_id_unique"}),
+            ([("user_id", 1)], {"name": "user_id_index"}),
+            ([("document_id", 1)], {"name": "document_id_index"}),
+            ([("created_at", 1)], {"name": "created_at_index"}),
+            ([("last_interaction_at", 1)], {"name": "last_interaction_at_index"}),
+            ([("is_active", 1)], {"name": "is_active_index"}),
+            ([("user_id", 1), ("document_id", 1)], {"name": "user_document_index"}),
+            ([("user_id", 1), ("is_active", 1)], {"name": "user_active_sessions_index"})
+        ]
+        
+        created_count = 0
+        existing_count = 0
+        
+        for index_spec, options in indexes_to_create:
+            index_name = options.get('name', 'unnamed')
+            
+            # Check if index already exists
+            if index_name in existing_indexes:
+                existing_count += 1
+                self.logger.debug(f"Session index already exists: {index_name}")
+                continue
+            
+            try:
+                self.sessions_collection.create_index(index_spec, **options)
+                created_count += 1
+                self.logger.debug(f"Created session index: {index_name}")
+                
+            except Exception as e:
+                if "already exists" not in str(e):
+                    self.logger.warning(f"Failed to create session index {index_name}: {e}")
+                else:
+                    existing_count += 1
+                    self.logger.debug(f"Session index already exists (duplicate): {index_name}")
+        
+        self.logger.info(f"Session indexes processed successfully (created: {created_count}, existing: {existing_count}, total attempted: {len(indexes_to_create)})")
     
     def create_session(
         self,

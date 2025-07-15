@@ -1,22 +1,45 @@
-"""OCR Manager for Azure Document Intelligence."""
+"""OCR Manager for handling document text extraction using Azure Document Intelligence."""
 
 import time
 from typing import Dict, Any
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.core.credentials import AzureKeyCredential
+from azure.ai.documentintelligence.models import AnalyzeResult, DocumentAnalysisFeature
 from azure.core.exceptions import AzureError
+import threading
 
-from app.settings.v1.settings import SETTINGS
 from app.core.v1.exceptions import OCRException
-from app.core.v1.log_manager import LogManager
 from app.core.v1.decorators import retry, log_execution_time
+from app.core.v1.log_manager import LogManager
+from app.settings.v1.settings import SETTINGS
 
 
 class OCRManager:
-    """OCR Manager for handling document intelligence operations."""
+    """
+    OCR Manager for handling document text extraction.
+    Implements Singleton pattern to ensure only one instance exists.
+    """
+    
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        """Create singleton instance with thread safety."""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
 
     def __init__(self):
-        """Initialize OCR Manager."""
+        """
+        Initialize OCR Manager (only once due to singleton pattern).
+        """
+        # Only initialize once
+        if hasattr(self, '_initialized') and self._initialized:
+            return
+            
         self.logger = LogManager(__name__)
         self.endpoint = SETTINGS.AZURE.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT
         self.key = SETTINGS.AZURE.AZURE_DOCUMENT_INTELLIGENCE_KEY
@@ -30,6 +53,9 @@ class OCRManager:
         except Exception as err:
             self.logger.error(f"Failed to initialize OCR Manager: {err}")
             raise OCRException(f"OCR initialization failed: {err}") from err
+            
+        # Mark as initialized
+        self._initialized = True
 
     @retry(exceptions=(AzureError, OCRException))
     @log_execution_time

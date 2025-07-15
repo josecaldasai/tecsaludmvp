@@ -40,36 +40,20 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {'Production' if SETTINGS.GENERAL.PRODUCTION else 'Development'}")
     logger.info(f"Version: {VERSION}")
     
-    # Create database indexes if needed
+    # Validate database connection
     try:
         from app.core.v1.mongodb_manager import MongoDBManager
         mongodb_manager = MongoDBManager()
         
-        # Create text search index
-        mongodb_manager.create_index(
-            collection_name=SETTINGS.GENERAL.MONGODB_COLLECTION_DOCUMENTS,
-            index_spec=[("extracted_text", "text"), ("filename", "text")],
-            name="text_search_index"
-        )
-        
-        # Create user index
-        mongodb_manager.create_index(
-            collection_name=SETTINGS.GENERAL.MONGODB_COLLECTION_DOCUMENTS,
-            index_spec="user_id",
-            name="user_id_index"
-        )
-        
-        # Create processing status index
-        mongodb_manager.create_index(
-            collection_name=SETTINGS.GENERAL.MONGODB_COLLECTION_DOCUMENTS,
-            index_spec="processing_status",
-            name="processing_status_index"
-        )
-        
-        logger.info("Database indexes created successfully")
+        # The MongoDBManager automatically creates indexes during initialization
+        # We just need to verify the connection is working
+        test_count = mongodb_manager.count_documents({})
+        logger.info(f"Database connection validated successfully. Document count: {test_count}")
         
     except Exception as err:
-        logger.warning(f"Failed to create database indexes: {err}")
+        logger.error(f"Database connection validation failed: {err}")
+        # Don't raise exception to allow startup to continue
+        # The individual managers will handle their own connection errors
     
     yield
     

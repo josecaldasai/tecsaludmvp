@@ -1,6 +1,7 @@
 """Azure Storage Manager for handling file uploads and downloads."""
 
 import os
+import threading
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 
@@ -18,12 +19,29 @@ from app.core.v1.log_manager import LogManager
 class StorageManager:
     """
     Azure Storage Manager for handling file operations.
+    Implements Singleton pattern to ensure only one instance exists.
     """
+    
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        """Create singleton instance with thread safety."""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
 
     def __init__(self):
         """
-        Initialize Storage Manager.
+        Initialize Storage Manager (only once due to singleton pattern).
         """
+        # Only initialize once
+        if hasattr(self, '_initialized') and self._initialized:
+            return
+            
         self.logger = LogManager(__name__)
         
         # Azure Storage configuration
@@ -48,6 +66,9 @@ class StorageManager:
         self.chunk_size = int(os.environ.get("AZURE_STORAGE_CHUNK_SIZE", "4194304"))  # 4MB chunks
         
         self.logger.info("Storage Manager initialized successfully with parallel processing")
+        
+        # Mark as initialized
+        self._initialized = True
 
     def _ensure_container_exists(self):
         """
