@@ -24,7 +24,10 @@ from app.apis.v1.types_out import (
 from app.core.v1.pills_manager import PillsManager
 from app.core.v1.exceptions import (
     DatabaseException,
-    ValidationException
+    ValidationException,
+    PillNotFoundException,
+    InvalidPillCategoryException,
+    DuplicatePillPriorityException
 )
 from app.core.v1.log_manager import LogManager
 
@@ -134,13 +137,24 @@ async def create_pill(pill_data: PillCreateData):
             updated_at=result["updated_at"].isoformat()
         )
         
+    except InvalidPillCategoryException as err:
+        # Let specific pill exceptions bubble up to global handlers
+        logger.info(f"🔍 DEBUG: Caught InvalidPillCategoryException: {err}")
+        raise err
+    except (DuplicatePillPriorityException, PillNotFoundException) as err:
+        # Let other specific pill exceptions bubble up to global handlers  
+        logger.info(f"🔍 DEBUG: Caught other specific pill exception: {type(err).__name__}: {err}")
+        raise err
     except ValidationException as err:
+        logger.warning(f"🔍 DEBUG: Caught ValidationException: {err}")
         logger.warning(f"Pill creation validation failed: {err}")
         raise HTTPException(status_code=400, detail=str(err))
     except DatabaseException as err:
+        logger.error(f"🔍 DEBUG: Caught DatabaseException: {err}")
         logger.error(f"Pill creation database error: {err}")
         raise HTTPException(status_code=500, detail=f"Database error: {err}")
     except Exception as err:
+        logger.error(f"🔍 DEBUG: Caught generic Exception: {type(err).__name__}: {err}")
         logger.error(f"Unexpected error creating pill: {err}")
         raise HTTPException(status_code=500, detail=f"Unexpected error: {err}")
 

@@ -172,3 +172,20 @@ class UserDocumentMismatchException(ChatException):
     """Exception when user_id doesn't match document owner during session creation."""
     
     pass 
+
+
+# Pills Management Exceptions
+
+class PillNotFoundException(BaseException):
+    """Exception when a pill is not found."""
+    pass
+
+
+class InvalidPillCategoryException(BaseException):
+    """Exception for invalid pill category."""
+    pass
+
+
+class DuplicatePillPriorityException(BaseException):
+    """Exception when trying to use a priority that already exists."""
+    pass 

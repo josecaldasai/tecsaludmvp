@@ -7,7 +7,13 @@ from pymongo.errors import PyMongoError, DuplicateKeyError
 from bson import ObjectId
 import threading
 
-from app.core.v1.exceptions import DatabaseException, ValidationException
+from app.core.v1.exceptions import (
+    DatabaseException, 
+    ValidationException,
+    PillNotFoundException,
+    InvalidPillCategoryException,
+    DuplicatePillPriorityException
+)
 from app.core.v1.log_manager import LogManager
 from app.settings.v1.general import SETTINGS
 from pymongo import MongoClient, ASCENDING
@@ -147,7 +153,7 @@ class PillsManager:
             
             # Validate category
             if pill_data["category"] not in self.valid_categories:
-                raise ValidationException(
+                raise InvalidPillCategoryException(
                     f"Invalid category '{pill_data['category']}'. "
                     f"Valid categories: {', '.join(self.valid_categories)}"
                 )
@@ -190,6 +196,9 @@ class PillsManager:
             
             return pill_doc
             
+        except (InvalidPillCategoryException, DuplicatePillPriorityException):
+            # Let specific pill exceptions bubble up
+            raise
         except ValidationException:
             raise
         except DuplicateKeyError as err:

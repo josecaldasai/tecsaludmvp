@@ -23,7 +23,10 @@ from app.core.v1.exceptions import (
     DatabaseException,
     ChatException,
     UserIdRequiredException,
-    InvalidUserIdException
+    InvalidUserIdException,
+    PillNotFoundException,
+    InvalidPillCategoryException,
+    DuplicatePillPriorityException
 )
 from app.settings.v1.settings import SETTINGS
 
@@ -168,6 +171,48 @@ async def database_exception_handler(request: Request, exc: DatabaseException):
     )
 
 
+@app.exception_handler(PillNotFoundException)
+async def pill_not_found_exception_handler(request: Request, exc: PillNotFoundException):
+    """Handle pill not found exceptions."""
+    logger.warning(f"Pill not found: {exc.message}")
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error_code": "PILL_NOT_FOUND",
+            "error_message": exc.message,
+            "timestamp": time.time()
+        }
+    )
+
+
+@app.exception_handler(InvalidPillCategoryException)
+async def invalid_pill_category_exception_handler(request: Request, exc: InvalidPillCategoryException):
+    """Handle invalid pill category exceptions."""
+    logger.warning(f"Invalid pill category: {exc.message}")
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error_code": "INVALID_PILL_CATEGORY",
+            "error_message": exc.message,
+            "timestamp": time.time()
+        }
+    )
+
+
+@app.exception_handler(DuplicatePillPriorityException)
+async def duplicate_pill_priority_exception_handler(request: Request, exc: DuplicatePillPriorityException):
+    """Handle duplicate pill priority exceptions."""
+    logger.warning(f"Duplicate pill priority: {exc.message}")
+    return JSONResponse(
+        status_code=409,
+        content={
+            "error_code": "DUPLICATE_PILL_PRIORITY",
+            "error_message": exc.message,
+            "timestamp": time.time()
+        }
+    )
+
+
 @app.exception_handler(ChatException)
 async def chat_exception_handler(request: Request, exc: ChatException):
     """Handle chat exceptions."""
@@ -254,12 +299,23 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
                 )
     
     # Default validation error handling
+    # Clean errors to make them JSON serializable
+    clean_errors = []
+    for error in exc.errors():
+        clean_error = {
+            "type": error.get("type"),
+            "loc": error.get("loc", []),
+            "msg": error.get("msg"),
+            "input": error.get("input")
+        }
+        clean_errors.append(clean_error)
+    
     return JSONResponse(
         status_code=422,
         content={
             "error_code": "VALIDATION_ERROR",
             "message": "Request validation failed",
-            "details": exc.errors(),
+            "details": clean_errors,
             "request_id": request_id,
             "suggestion": "Please check your request parameters and try again",
             "timestamp": time.time()

@@ -137,7 +137,7 @@ class DocumentSearchParams(BaseModel):
     def validate_user_id(cls, v):
         """Validate user_id format."""
         if v is None or v.strip() == "":
-            raise ValidationError("user_id is required and cannot be empty")
+            raise ValueError("user_id is required and cannot be empty")
         return v
     
     @validator('batch_id')
@@ -151,7 +151,7 @@ class DocumentSearchParams(BaseModel):
                 uuid.UUID(v)
                 return v
             except ValueError:
-                raise ValidationError(f"batch_id must be a valid UUID format, got: '{v}'")
+                raise ValueError(f"batch_id must be a valid UUID format, got: '{v}'")
         return v
 
 
@@ -180,28 +180,28 @@ class ChatQuestionData(BaseModel):
     def validate_session_id(cls, v):
         """Validate session_id format."""
         if not v or not v.strip():
-            raise ValidationError("Session ID cannot be empty")
+            raise ValueError("Session ID cannot be empty")
         return v.strip()
     
     @validator('user_id')
     def validate_user_id(cls, v):
         """Validate user_id format."""
         if not v or not v.strip():
-            raise ValidationError("User ID cannot be empty")
+            raise ValueError("User ID cannot be empty")
         return v.strip()
     
     @validator('document_id')
     def validate_document_id(cls, v):
         """Validate document_id format."""
         if not v or not v.strip():
-            raise ValidationError("Document ID cannot be empty")
+            raise ValueError("Document ID cannot be empty")
         return v.strip()
     
     @validator('question')
     def validate_question(cls, v):
         """Validate question content."""
         if not v or not v.strip():
-            raise ValidationError("Question cannot be empty")
+            raise ValueError("Question cannot be empty")
         return v.strip()
 
 
@@ -226,14 +226,14 @@ class CreateSessionData(BaseModel):
     def validate_user_id(cls, v):
         """Validate user_id format."""
         if not v or not v.strip():
-            raise ValidationError("User ID cannot be empty")
+            raise ValueError("User ID cannot be empty")
         return v.strip()
     
     @validator('document_id')
     def validate_document_id(cls, v):
         """Validate document_id format."""
         if not v or not v.strip():
-            raise ValidationError("Document ID cannot be empty")
+            raise ValueError("Document ID cannot be empty")
         return v.strip()
     
     @validator('session_name')
@@ -458,14 +458,14 @@ class FuzzySearchParams(BaseModel):
     def validate_search_term(cls, v):
         """Validate search term."""
         if not v or v.strip() == "":
-            raise ValidationError("search_term cannot be empty")
+            raise ValueError("search_term cannot be empty")
         return v.strip()
     
     @validator('user_id')
     def validate_user_id(cls, v):
         """Validate user_id format."""
         if v is None or v.strip() == "":
-            raise ValidationError("user_id is required and cannot be empty")
+            raise ValueError("user_id is required and cannot be empty")
         return v
 
 
@@ -634,28 +634,28 @@ class PillCreateData(BaseModel):
     def validate_starter(cls, v):
         """Validate starter text."""
         if not v or not v.strip():
-            raise ValidationError("Starter text cannot be empty")
+            raise ValueError("Starter text cannot be empty")
         return v.strip()
     
     @validator('text')
     def validate_text(cls, v):
         """Validate text content."""
         if not v or not v.strip():
-            raise ValidationError("Text content cannot be empty")
+            raise ValueError("Text content cannot be empty")
         return v.strip()
     
     @validator('icon')
     def validate_icon(cls, v):
         """Validate icon (should be emoji)."""
         if not v or not v.strip():
-            raise ValidationError("Icon cannot be empty")
+            raise ValueError("Icon cannot be empty")
         return v.strip()
     
     @validator('category')
     def validate_category(cls, v):
         """Validate category."""
         if not v or not v.strip():
-            raise ValidationError("Category cannot be empty")
+            raise ValueError("Category cannot be empty")
         
         valid_categories = [
             "general", "medico", "emergencia", "consulta", 
@@ -664,7 +664,7 @@ class PillCreateData(BaseModel):
         
         category_lower = v.strip().lower()
         if category_lower not in valid_categories:
-            raise ValidationError(
+            raise ValueError(
                 f"Invalid category '{v}'. Valid categories: {', '.join(valid_categories)}"
             )
         
@@ -674,7 +674,7 @@ class PillCreateData(BaseModel):
     def validate_priority(cls, v):
         """Validate priority."""
         if not isinstance(v, int) or v < 1:
-            raise ValidationError("Priority must be a positive integer (1 or greater)")
+            raise ValueError("Priority must be a positive integer (1 or greater)")
         return v
 
 
@@ -724,21 +724,21 @@ class PillUpdateData(BaseModel):
     def validate_starter(cls, v):
         """Validate starter text."""
         if v is not None and (not v or not v.strip()):
-            raise ValidationError("Starter text cannot be empty")
+            raise ValueError("Starter text cannot be empty")
         return v.strip() if v else None
     
     @validator('text')
     def validate_text(cls, v):
         """Validate text content."""
         if v is not None and (not v or not v.strip()):
-            raise ValidationError("Text content cannot be empty")
+            raise ValueError("Text content cannot be empty")
         return v.strip() if v else None
     
     @validator('icon')
     def validate_icon(cls, v):
         """Validate icon (should be emoji)."""
         if v is not None and (not v or not v.strip()):
-            raise ValidationError("Icon cannot be empty")
+            raise ValueError("Icon cannot be empty")
         return v.strip() if v else None
     
     @validator('category')
@@ -748,7 +748,7 @@ class PillUpdateData(BaseModel):
             return None
             
         if not v or not v.strip():
-            raise ValidationError("Category cannot be empty")
+            raise ValueError("Category cannot be empty")
         
         valid_categories = [
             "general", "medico", "emergencia", "consulta", 
@@ -757,7 +757,7 @@ class PillUpdateData(BaseModel):
         
         category_lower = v.strip().lower()
         if category_lower not in valid_categories:
-            raise ValidationError(
+            raise ValueError(
                 f"Invalid category '{v}'. Valid categories: {', '.join(valid_categories)}"
             )
         
@@ -767,7 +767,7 @@ class PillUpdateData(BaseModel):
     def validate_priority(cls, v):
         """Validate priority."""
         if v is not None and (not isinstance(v, int) or v < 1):
-            raise ValidationError("Priority must be a positive integer (1 or greater)")
+            raise ValueError("Priority must be a positive integer (1 or greater)")
         return v
 
 
@@ -830,7 +830,7 @@ class PillSearchParams(BaseModel):
         
         category_lower = v.strip().lower()
         if category_lower not in valid_categories:
-            raise ValidationError(
+            raise ValueError(
                 f"Invalid category '{v}'. Valid categories: {', '.join(valid_categories)}"
             )
         

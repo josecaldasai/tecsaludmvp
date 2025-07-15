@@ -76,8 +76,14 @@ class TestPillCRUD:
         }
         
         response = api_client.post("/api/v1/pills/", json=pill_data)
-        # El API actualmente devuelve 500 para categorías inválidas debido a validación en el manager
-        assert response.status_code == 500
+        # Validación de Pydantic devuelve 422 para categorías inválidas
+        assert response.status_code == 422
+        
+        result = response.json()
+        assert "error_code" in result
+        assert result["error_code"] == "VALIDATION_ERROR"
+        assert "details" in result
+        assert any("Invalid category" in detail.get("msg", "") for detail in result["details"])
         
     def test_create_pill_invalid_priority(self, api_client, clean_database):
         """Test de error al crear pastilla con prioridad inválida."""
@@ -451,8 +457,13 @@ class TestPillListing:
     def test_list_pills_invalid_category(self, api_client, clean_database):
         """Test de error con categoría inválida en filtro."""
         response = api_client.get("/api/v1/pills/?category=categoria_invalida")
-        # El API actualmente devuelve 500 para categorías inválidas
-        assert response.status_code == 500
+        # Validación del router devuelve 400 para categorías inválidas
+        assert response.status_code == 400
+        
+        result = response.json()
+        assert "error_code" in result
+        assert "error_message" in result
+        assert "Invalid search parameters" in result["error_message"]
 
 
 class TestPillCategories:
