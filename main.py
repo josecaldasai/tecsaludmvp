@@ -310,6 +310,10 @@ app.include_router(fuzzy_search_router, prefix="/api/v1/search", tags=["fuzzy-se
 from app.apis.v1.tokens_router import router as tokens_router
 app.include_router(tokens_router, prefix="/api/v1/tokens", tags=["tokens"])
 
+# Import and include pills router
+from app.apis.v1.pills_router import router as pills_router
+app.include_router(pills_router, prefix="/api/v1/pills", tags=["pills"])
+
 
 # Root endpoint
 @app.get("/", tags=["health"])

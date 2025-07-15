@@ -54,6 +54,10 @@ TAGS_METADATA = [
         "description": "Tokens de autenticación para Azure Speech Services y Azure Storage",
     },
     {
+        "name": "pills",
+        "description": "Administración de pastillas (templates de botones prefabricados tipo starters de Chainlit)",
+    },
+    {
         "name": "health",
         "description": "Endpoints para verificar el estado de la aplicación",
     },

@@ -591,4 +591,289 @@ def validate_patient_document_search_params(
         user_id=user_id,
         limit=limit,
         skip=skip
+    )
+
+
+# ============================================================================
+# PILLS MODELS
+# ============================================================================
+
+class PillCreateData(BaseModel):
+    """Validation model for creating a new pill template."""
+    
+    starter: str = Field(
+        min_length=1,
+        max_length=200,
+        description="Text displayed on the starter button"
+    )
+    
+    text: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="Text that will be sent when the button is clicked"
+    )
+    
+    icon: str = Field(
+        min_length=1,
+        max_length=10,
+        description="Emoji icon displayed on the button"
+    )
+    
+    category: str = Field(
+        min_length=1,
+        max_length=50,
+        description="Category for organizing pills"
+    )
+    
+    priority: int = Field(
+        ge=1,
+        description="Priority order (1 is highest priority, must be unique)"
+    )
+    
+    @validator('starter')
+    def validate_starter(cls, v):
+        """Validate starter text."""
+        if not v or not v.strip():
+            raise ValidationError("Starter text cannot be empty")
+        return v.strip()
+    
+    @validator('text')
+    def validate_text(cls, v):
+        """Validate text content."""
+        if not v or not v.strip():
+            raise ValidationError("Text content cannot be empty")
+        return v.strip()
+    
+    @validator('icon')
+    def validate_icon(cls, v):
+        """Validate icon (should be emoji)."""
+        if not v or not v.strip():
+            raise ValidationError("Icon cannot be empty")
+        return v.strip()
+    
+    @validator('category')
+    def validate_category(cls, v):
+        """Validate category."""
+        if not v or not v.strip():
+            raise ValidationError("Category cannot be empty")
+        
+        valid_categories = [
+            "general", "medico", "emergencia", "consulta", 
+            "laboratorio", "radiologia", "farmacia", "administrativo"
+        ]
+        
+        category_lower = v.strip().lower()
+        if category_lower not in valid_categories:
+            raise ValidationError(
+                f"Invalid category '{v}'. Valid categories: {', '.join(valid_categories)}"
+            )
+        
+        return category_lower
+    
+    @validator('priority')
+    def validate_priority(cls, v):
+        """Validate priority."""
+        if not isinstance(v, int) or v < 1:
+            raise ValidationError("Priority must be a positive integer (1 or greater)")
+        return v
+
+
+class PillUpdateData(BaseModel):
+    """Validation model for updating an existing pill template."""
+    
+    starter: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description="Text displayed on the starter button"
+    )
+    
+    text: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=2000,
+        description="Text that will be sent when the button is clicked"
+    )
+    
+    icon: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=10,
+        description="Emoji icon displayed on the button"
+    )
+    
+    category: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=50,
+        description="Category for organizing pills"
+    )
+    
+    priority: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Priority order (1 is highest priority, must be unique)"
+    )
+    
+    is_active: Optional[bool] = Field(
+        default=None,
+        description="Whether the pill is active"
+    )
+    
+    @validator('starter')
+    def validate_starter(cls, v):
+        """Validate starter text."""
+        if v is not None and (not v or not v.strip()):
+            raise ValidationError("Starter text cannot be empty")
+        return v.strip() if v else None
+    
+    @validator('text')
+    def validate_text(cls, v):
+        """Validate text content."""
+        if v is not None and (not v or not v.strip()):
+            raise ValidationError("Text content cannot be empty")
+        return v.strip() if v else None
+    
+    @validator('icon')
+    def validate_icon(cls, v):
+        """Validate icon (should be emoji)."""
+        if v is not None and (not v or not v.strip()):
+            raise ValidationError("Icon cannot be empty")
+        return v.strip() if v else None
+    
+    @validator('category')
+    def validate_category(cls, v):
+        """Validate category."""
+        if v is None:
+            return None
+            
+        if not v or not v.strip():
+            raise ValidationError("Category cannot be empty")
+        
+        valid_categories = [
+            "general", "medico", "emergencia", "consulta", 
+            "laboratorio", "radiologia", "farmacia", "administrativo"
+        ]
+        
+        category_lower = v.strip().lower()
+        if category_lower not in valid_categories:
+            raise ValidationError(
+                f"Invalid category '{v}'. Valid categories: {', '.join(valid_categories)}"
+            )
+        
+        return category_lower
+    
+    @validator('priority')
+    def validate_priority(cls, v):
+        """Validate priority."""
+        if v is not None and (not isinstance(v, int) or v < 1):
+            raise ValidationError("Priority must be a positive integer (1 or greater)")
+        return v
+
+
+class PillSearchParams(BaseModel):
+    """Validation model for pill search parameters."""
+    
+    category: Optional[str] = Field(
+        default=None,
+        description="Filter by category"
+    )
+    
+    created_after: Optional[str] = Field(
+        default=None,
+        description="Filter by creation date (ISO format, after this date)"
+    )
+    
+    created_before: Optional[str] = Field(
+        default=None,
+        description="Filter by creation date (ISO format, before this date)"
+    )
+    
+    updated_after: Optional[str] = Field(
+        default=None,
+        description="Filter by update date (ISO format, after this date)"
+    )
+    
+    updated_before: Optional[str] = Field(
+        default=None,
+        description="Filter by update date (ISO format, before this date)"
+    )
+    
+    is_active: Optional[bool] = Field(
+        default=None,
+        description="Filter by active status"
+    )
+    
+    limit: int = Field(
+        default=100,
+        ge=1,
+        le=1000,
+        description="Maximum number of results"
+    )
+    
+    skip: int = Field(
+        default=0,
+        ge=0,
+        description="Number of results to skip for pagination"
+    )
+    
+    @validator('category')
+    def validate_category(cls, v):
+        """Validate category filter."""
+        if v is None:
+            return None
+            
+        valid_categories = [
+            "general", "medico", "emergencia", "consulta", 
+            "laboratorio", "radiologia", "farmacia", "administrativo"
+        ]
+        
+        category_lower = v.strip().lower()
+        if category_lower not in valid_categories:
+            raise ValidationError(
+                f"Invalid category '{v}'. Valid categories: {', '.join(valid_categories)}"
+            )
+        
+        return category_lower
+
+
+# Pills validation functions
+def validate_pill_create_data(data: dict) -> PillCreateData:
+    """Validate pill creation data."""
+    try:
+        return PillCreateData(**data)
+    except ValidationError as err:
+        from app.core.v1.exceptions import ValidationException
+        raise ValidationException(f"Invalid pill data: {err}") from err
+
+
+def validate_pill_update_data(data: dict) -> PillUpdateData:
+    """Validate pill update data."""
+    try:
+        return PillUpdateData(**data)
+    except ValidationError as err:
+        from app.core.v1.exceptions import ValidationException
+        raise ValidationException(f"Invalid pill update data: {err}") from err
+
+
+def validate_pill_search_params(
+    category: Optional[str] = None,
+    created_after: Optional[str] = None,
+    created_before: Optional[str] = None,
+    updated_after: Optional[str] = None,
+    updated_before: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    limit: int = 100,
+    skip: int = 0
+) -> PillSearchParams:
+    """Validate pill search parameters."""
+    return PillSearchParams(
+        category=category,
+        created_after=created_after,
+        created_before=created_before,
+        updated_after=updated_after,
+        updated_before=updated_before,
+        is_active=is_active,
+        limit=limit,
+        skip=skip
     ) 

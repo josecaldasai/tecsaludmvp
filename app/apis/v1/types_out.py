@@ -845,3 +845,111 @@ class AzureStorageTokenResponse(BaseModel):
     issued_at: str = Field(
         description="Timestamp when token was issued"
     ) 
+
+
+# ============================================================================
+# PILLS RESPONSE MODELS
+# ============================================================================
+
+class PillResponse(BaseModel):
+    """Response schema for a single pill template."""
+    
+    pill_id: str = Field(
+        description="Unique pill identifier"
+    )
+    
+    starter: str = Field(
+        description="Text displayed on the starter button"
+    )
+    
+    text: str = Field(
+        description="Text that will be sent when the button is clicked"
+    )
+    
+    icon: str = Field(
+        description="Emoji icon displayed on the button"
+    )
+    
+    category: str = Field(
+        description="Category for organizing pills"
+    )
+    
+    priority: int = Field(
+        description="Priority order (1 is highest priority)"
+    )
+    
+    is_active: bool = Field(
+        description="Whether the pill is active"
+    )
+    
+    created_at: str = Field(
+        description="Creation timestamp (ISO format)"
+    )
+    
+    updated_at: str = Field(
+        description="Last update timestamp (ISO format)"
+    )
+
+
+class PillListResponse(BaseModel):
+    """Response schema for pill list with pagination."""
+    
+    pills: List[PillResponse] = Field(
+        description="List of pill templates"
+    )
+    
+    pagination: Dict[str, Any] = Field(
+        description="Pagination metadata"
+    )
+    
+    total: int = Field(
+        description="Total number of pills matching the query"
+    )
+    
+    count: int = Field(
+        description="Number of pills returned in this response"
+    )
+    
+    limit: int = Field(
+        description="Maximum number of results requested"
+    )
+    
+    skip: int = Field(
+        description="Number of results skipped"
+    )
+    
+    has_next: bool = Field(
+        description="Whether there are more results available"
+    )
+    
+    has_prev: bool = Field(
+        description="Whether there are previous results available"
+    )
+
+
+class PillDeleteResponse(BaseModel):
+    """Response schema for pill deletion."""
+    
+    pill_id: str = Field(
+        description="ID of the deleted pill"
+    )
+    
+    success: bool = Field(
+        description="Whether the deletion was successful"
+    )
+    
+    message: str = Field(
+        description="Descriptive message about the deletion result"
+    )
+
+
+class PillCategoriesResponse(BaseModel):
+    """Response schema for available pill categories."""
+    
+    categories: List[str] = Field(
+        description="List of valid category names"
+    )
+    
+    count: int = Field(
+        description="Number of available categories"
+    ) 

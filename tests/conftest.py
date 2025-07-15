@@ -64,7 +64,8 @@ def clean_database(mongodb_database):
     collections_to_clean = [
         "documents",
         "chat_sessions", 
-        "chat_interactions"
+        "chat_interactions",
+        "pills"
     ]
     
     for collection_name in collections_to_clean:
