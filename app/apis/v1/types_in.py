@@ -625,9 +625,8 @@ class PillCreateData(BaseModel):
         description="Category for organizing pills"
     )
     
-    priority: int = Field(
-        ge=1,
-        description="Priority order (1 is highest priority, must be unique)"
+    priority: str = Field(
+        description="Priority level: 'alta', 'media', or 'baja'"
     )
     
     @validator('starter')
@@ -672,10 +671,19 @@ class PillCreateData(BaseModel):
     
     @validator('priority')
     def validate_priority(cls, v):
-        """Validate priority."""
-        if not isinstance(v, int) or v < 1:
-            raise ValueError("Priority must be a positive integer (1 or greater)")
-        return v
+        """Validate priority level."""
+        if not v or not v.strip():
+            raise ValueError("Priority cannot be empty")
+        
+        valid_priorities = ["alta", "media", "baja"]
+        priority_lower = v.strip().lower()
+        
+        if priority_lower not in valid_priorities:
+            raise ValueError(
+                f"Invalid priority '{v}'. Valid priorities: {', '.join(valid_priorities)}"
+            )
+        
+        return priority_lower
 
 
 class PillUpdateData(BaseModel):
@@ -709,10 +717,9 @@ class PillUpdateData(BaseModel):
         description="Category for organizing pills"
     )
     
-    priority: Optional[int] = Field(
+    priority: Optional[str] = Field(
         default=None,
-        ge=1,
-        description="Priority order (1 is highest priority, must be unique)"
+        description="Priority level: 'alta', 'media', or 'baja'"
     )
     
     is_active: Optional[bool] = Field(
@@ -765,10 +772,22 @@ class PillUpdateData(BaseModel):
     
     @validator('priority')
     def validate_priority(cls, v):
-        """Validate priority."""
-        if v is not None and (not isinstance(v, int) or v < 1):
-            raise ValueError("Priority must be a positive integer (1 or greater)")
-        return v
+        """Validate priority level."""
+        if v is None:
+            return None
+            
+        if not v or not v.strip():
+            raise ValueError("Priority cannot be empty")
+        
+        valid_priorities = ["alta", "media", "baja"]
+        priority_lower = v.strip().lower()
+        
+        if priority_lower not in valid_priorities:
+            raise ValueError(
+                f"Invalid priority '{v}'. Valid priorities: {', '.join(valid_priorities)}"
+            )
+        
+        return priority_lower
 
 
 class PillSearchParams(BaseModel):
@@ -856,24 +875,10 @@ def validate_pill_update_data(data: dict) -> PillUpdateData:
         raise ValidationException(f"Invalid pill update data: {err}") from err
 
 
-def validate_pill_search_params(
-    category: Optional[str] = None,
-    created_after: Optional[str] = None,
-    created_before: Optional[str] = None,
-    updated_after: Optional[str] = None,
-    updated_before: Optional[str] = None,
-    is_active: Optional[bool] = None,
-    limit: int = 100,
-    skip: int = 0
-) -> PillSearchParams:
+def validate_pill_search_params(data: dict) -> PillSearchParams:
     """Validate pill search parameters."""
-    return PillSearchParams(
-        category=category,
-        created_after=created_after,
-        created_before=created_before,
-        updated_after=updated_after,
-        updated_before=updated_before,
-        is_active=is_active,
-        limit=limit,
-        skip=skip
-    ) 
+    try:
+        return PillSearchParams(**data)
+    except ValidationError as err:
+        from app.core.v1.exceptions import ValidationException
+        raise ValidationException(f"Invalid search parameters: {err}") from err 

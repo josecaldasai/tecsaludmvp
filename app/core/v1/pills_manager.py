@@ -65,6 +65,9 @@ class PillsManager:
             "administrativo"
         ]
         
+        # Valid priority levels (categorical)
+        self.valid_priorities = ["alta", "media", "baja"]
+        
         # Ensure indexes exist
         self._create_indexes()
         
@@ -84,10 +87,10 @@ class PillsManager:
         except Exception as err:
             self.logger.warning(f"Failed to retrieve existing pills indexes: {err}")
         
-        # Define indexes to create
+        # Define indexes to create (removing unique priority index)
         indexes_to_create = [
             ([("pill_id", ASCENDING)], {"unique": True, "name": "pill_id_unique"}),
-            ([("priority", ASCENDING)], {"unique": True, "name": "priority_unique"}),
+            ([("priority", ASCENDING)], {"name": "priority_index"}),  # Removed unique constraint
             ([("category", ASCENDING)], {"name": "category_index"}),
             ([("created_at", ASCENDING)], {"name": "created_at_index"}),
             ([("updated_at", ASCENDING)], {"name": "updated_at_index"}),
@@ -98,34 +101,29 @@ class PillsManager:
         created_count = 0
         existing_count = 0
         
-        for index_spec, options in indexes_to_create:
-            index_name = options.get('name', 'unnamed')
+        for index_spec, index_options in indexes_to_create:
+            index_name = index_options["name"]
             
-            # Check if index already exists
-            if index_name in existing_indexes:
+            if index_name not in existing_indexes:
+                try:
+                    self.pills_collection.create_index(index_spec, **index_options)
+                    created_count += 1
+                except Exception as err:
+                    self.logger.warning(f"Failed to create index '{index_name}': {err}")
+            else:
                 existing_count += 1
-                self.logger.debug(f"Pills index already exists: {index_name}")
-                continue
-            
-            try:
-                self.pills_collection.create_index(index_spec, **options)
-                created_count += 1
-                self.logger.debug(f"Created pills index: {index_name}")
-                
-            except PyMongoError as err:
-                # Handle specific MongoDB errors
-                if "already exists" in str(err).lower() or "duplicate" in str(err).lower():
-                    existing_count += 1
-                    self.logger.debug(f"Pills index already exists (duplicate key): {index_name}")
-                elif "only one text index" in str(err).lower():
-                    existing_count += 1
-                    self.logger.debug(f"Text index already exists, skipping: {index_name}")
-                else:
-                    self.logger.warning(f"Failed to create pills index {index_name}: {err}")
-            except Exception as err:
-                self.logger.warning(f"Unexpected error creating pills index {index_name}: {err}")
         
-        self.logger.info(f"Pills indexes processed successfully (created: {created_count}, existing: {existing_count}, total attempted: {len(indexes_to_create)})")
+        # Try to drop the old unique priority index if it exists
+        try:
+            if "priority_unique" in existing_indexes:
+                self.pills_collection.drop_index("priority_unique")
+                self.logger.info("Dropped old unique priority index")
+        except Exception as err:
+            self.logger.warning(f"Failed to drop old priority index: {err}")
+        
+        self.logger.info(
+            f"Pills indexes processed successfully (created: {created_count}, existing: {existing_count}, total attempted: {len(indexes_to_create)})"
+        )
 
     def create_pill(self, pill_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -158,15 +156,12 @@ class PillsManager:
                     f"Valid categories: {', '.join(self.valid_categories)}"
                 )
             
-            # Validate priority
+            # Validate priority (categorical)
             priority = pill_data["priority"]
-            if not isinstance(priority, int) or priority < 1:
-                raise ValidationException("Priority must be a positive integer (1 or greater)")
-            
-            # Check if priority already exists
-            existing_pill = self.pills_collection.find_one({"priority": priority})
-            if existing_pill:
-                raise ValidationException(f"Priority {priority} is already in use by another pill")
+            if not isinstance(priority, str) or priority.lower() not in self.valid_priorities:
+                raise ValidationException(
+                    f"Invalid priority '{priority}'. Valid priorities: {', '.join(self.valid_priorities)}"
+                )
             
             pill_doc = {
                 "pill_id": pill_id,
@@ -174,7 +169,7 @@ class PillsManager:
                 "text": pill_data["text"].strip(),
                 "icon": pill_data["icon"].strip(),
                 "category": pill_data["category"].strip().lower(),
-                "priority": priority,
+                "priority": priority.lower(),
                 "created_at": timestamp,
                 "updated_at": timestamp,
                 "is_active": True
@@ -202,8 +197,6 @@ class PillsManager:
         except ValidationException:
             raise
         except DuplicateKeyError as err:
-            if "priority" in str(err):
-                raise ValidationException(f"Priority {priority} is already in use")
             raise DatabaseException(f"Duplicate pill data: {err}") from err
         except PyMongoError as err:
             self.logger.error(f"Failed to create pill: {err}")
@@ -268,21 +261,13 @@ class PillsManager:
                     f"Valid categories: {', '.join(self.valid_categories)}"
                 )
             
-            # Validate and handle priority if provided
+            # Validate priority if provided (categorical)
             if "priority" in update_data:
                 new_priority = update_data["priority"]
-                if not isinstance(new_priority, int) or new_priority < 1:
-                    raise ValidationException("Priority must be a positive integer (1 or greater)")
-                
-                # Check if priority is changing and if new priority already exists
-                current_priority = existing_pill.get("priority")
-                if new_priority != current_priority:
-                    existing_priority_pill = self.pills_collection.find_one({
-                        "priority": new_priority,
-                        "pill_id": {"$ne": pill_id}
-                    })
-                    if existing_priority_pill:
-                        raise ValidationException(f"Priority {new_priority} is already in use by another pill")
+                if not isinstance(new_priority, str) or new_priority.lower() not in self.valid_priorities:
+                    raise ValidationException(
+                        f"Invalid priority '{new_priority}'. Valid priorities: {', '.join(self.valid_priorities)}"
+                    )
             
             # Prepare update data
             update_fields = {}
@@ -293,6 +278,8 @@ class PillsManager:
                     if field in ["starter", "text", "icon"]:
                         update_fields[field] = str(update_data[field]).strip()
                     elif field == "category":
+                        update_fields[field] = str(update_data[field]).strip().lower()
+                    elif field == "priority":
                         update_fields[field] = str(update_data[field]).strip().lower()
                     else:
                         update_fields[field] = update_data[field]
@@ -325,8 +312,6 @@ class PillsManager:
         except ValidationException:
             raise
         except DuplicateKeyError as err:
-            if "priority" in str(err):
-                raise ValidationException(f"Priority {update_data.get('priority')} is already in use")
             raise DatabaseException(f"Duplicate pill data: {err}") from err
         except PyMongoError as err:
             self.logger.error(f"Failed to update pill: {err}")
@@ -424,15 +409,23 @@ class PillsManager:
             # Get total count
             total_count = self.pills_collection.count_documents(query)
             
-            # Execute search with pagination
-            cursor = self.pills_collection.find(query).sort("priority", 1).skip(skip).limit(limit)
+            # Execute search with pagination and proper priority ordering
+            # For categorical priorities, we need custom ordering: alta > media > baja
+            pills_cursor = self.pills_collection.find(query).skip(skip).limit(limit)
             
-            # Convert results
+            # Convert results and sort by priority order
             pills = []
-            for pill in cursor:
+            for pill in pills_cursor:
                 pill["_id"] = str(pill["_id"])
                 pills.append(pill)
             
+            # Sort by priority (alta first, then media, then baja)
+            priority_order = {"alta": 1, "media": 2, "baja": 3}
+            pills.sort(key=lambda x: (
+                priority_order.get(x.get("priority", "baja"), 3), 
+                x.get("created_at", datetime(1970, 1, 1))
+            ))
+
             # Calculate pagination metadata
             has_next = (skip + limit) < total_count
             has_prev = skip > 0
@@ -477,19 +470,26 @@ class PillsManager:
             is_active: Filter by active status (default: True)
             
         Returns:
-            List of pills ordered by priority
+            List of pills ordered by priority (alta, media, baja)
         """
         try:
             query = {}
             if is_active is not None:
                 query["is_active"] = is_active
                 
-            cursor = self.pills_collection.find(query).sort("priority", 1)
+            cursor = self.pills_collection.find(query)
             
             pills = []
             for pill in cursor:
                 pill["_id"] = str(pill["_id"])
                 pills.append(pill)
+            
+            # Sort by priority (alta first, then media, then baja) and creation time
+            priority_order = {"alta": 1, "media": 2, "baja": 3}
+            pills.sort(key=lambda x: (
+                priority_order.get(x.get("priority", "baja"), 3), 
+                x.get("created_at", datetime(1970, 1, 1))
+            ))
             
             self.logger.info(
                 "All pills retrieved",
@@ -514,6 +514,28 @@ class PillsManager:
             List of valid category names
         """
         return self.valid_categories.copy()
+
+    def get_valid_priorities(self) -> List[str]:
+        """
+        Get list of valid priority levels.
+        
+        Returns:
+            List of valid priority levels
+        """
+        return self.valid_priorities.copy()
+
+    def get_priority_descriptions(self) -> Dict[str, str]:
+        """
+        Get descriptions for each priority level.
+        
+        Returns:
+            Dictionary mapping priority levels to their descriptions
+        """
+        return {
+            "alta": "Prioridad alta - Se muestran primero",
+            "media": "Prioridad media - Se muestran en posición intermedia", 
+            "baja": "Prioridad baja - Se muestran al final"
+        }
 
     def close(self):
         """Close MongoDB connection."""

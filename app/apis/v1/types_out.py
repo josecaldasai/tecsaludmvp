@@ -874,8 +874,8 @@ class PillResponse(BaseModel):
         description="Category for organizing pills"
     )
     
-    priority: int = Field(
-        description="Priority order (1 is highest priority)"
+    priority: str = Field(
+        description="Priority level: 'alta', 'media', or 'baja'"
     )
     
     is_active: bool = Field(
@@ -940,6 +940,18 @@ class PillDeleteResponse(BaseModel):
     
     message: str = Field(
         description="Descriptive message about the deletion result"
+    )
+
+
+class PillPrioritiesResponse(BaseModel):
+    """Response schema for available pill priorities."""
+    
+    priorities: List[str] = Field(
+        description="List of available priority levels"
+    )
+    
+    description: Dict[str, str] = Field(
+        description="Description of each priority level"
     )
 
 
