@@ -6,6 +6,8 @@ from datetime import datetime
 from pymongo.errors import PyMongoError, DuplicateKeyError
 from bson import ObjectId
 import threading
+import time
+import random
 
 from app.core.v1.exceptions import (
     DatabaseException, 
@@ -125,9 +127,44 @@ class PillsManager:
             f"Pills indexes processed successfully (created: {created_count}, existing: {existing_count}, total attempted: {len(indexes_to_create)})"
         )
 
+    def _generate_unique_pill_id(self, max_retries: int = 5) -> str:
+        """
+        Generate a unique pill_id with retry logic to handle potential collisions.
+        
+        Args:
+            max_retries: Maximum number of retry attempts
+            
+        Returns:
+            Unique pill_id string
+            
+        Raises:
+            DatabaseException: If unable to generate unique ID after max retries
+        """
+        for attempt in range(max_retries):
+            pill_id = str(uuid.uuid4())
+            
+            try:
+                # Check if this pill_id already exists
+                existing = self.pills_collection.find_one({"pill_id": pill_id})
+                if not existing:
+                    self.logger.debug(f"Generated unique pill_id: {pill_id} (attempt {attempt + 1})")
+                    return pill_id
+                else:
+                    self.logger.warning(f"pill_id collision detected: {pill_id} (attempt {attempt + 1})")
+                    # Add small random delay to avoid rapid retries
+                    time.sleep(random.uniform(0.01, 0.05))
+                    
+            except PyMongoError as err:
+                self.logger.warning(f"Database error during pill_id uniqueness check (attempt {attempt + 1}): {err}")
+                # Continue to next attempt
+                continue
+        
+        # If we get here, we've exhausted all retries
+        raise DatabaseException(f"Unable to generate unique pill_id after {max_retries} attempts")
+
     def create_pill(self, pill_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Create a new pill template.
+        Create a new pill template with improved error handling and retry logic.
         
         Args:
             pill_data: Dictionary containing pill information
@@ -140,8 +177,11 @@ class PillsManager:
             DatabaseException: If database operation fails
         """
         try:
-            pill_id = str(uuid.uuid4())
+            # Generate unique pill_id with retry logic
+            pill_id = self._generate_unique_pill_id()
             timestamp = datetime.now()
+            
+            self.logger.info(f"Creating pill with generated pill_id: {pill_id}")
             
             # Validate required fields
             required_fields = ["starter", "text", "icon", "category", "priority"]
@@ -175,32 +215,63 @@ class PillsManager:
                 "is_active": True
             }
             
-            # Insert pill
-            result = self.pills_collection.insert_one(pill_doc)
-            result_id = str(result.inserted_id)
+            self.logger.debug(f"Prepared pill document for insertion: {pill_doc}")
             
-            pill_doc["_id"] = result_id
-            
-            self.logger.info(
-                "Pill created successfully",
-                pill_id=pill_id,
-                starter=pill_data["starter"],
-                category=pill_data["category"],
-                priority=priority
-            )
-            
-            return pill_doc
+            # Insert pill with retry logic for duplicate key errors
+            max_insert_retries = 3
+            for insert_attempt in range(max_insert_retries):
+                try:
+                    result = self.pills_collection.insert_one(pill_doc)
+                    result_id = str(result.inserted_id)
+                    pill_doc["_id"] = result_id
+                    
+                    self.logger.info(
+                        "Pill created successfully",
+                        pill_id=pill_id,
+                        mongo_id=result_id,
+                        starter=pill_data["starter"],
+                        category=pill_data["category"],
+                        priority=priority,
+                        insert_attempt=insert_attempt + 1
+                    )
+                    
+                    return pill_doc
+                    
+                except DuplicateKeyError as dup_err:
+                    self.logger.warning(
+                        f"Duplicate key error during pill insertion (attempt {insert_attempt + 1})",
+                        pill_id=pill_id,
+                        error_details=str(dup_err),
+                        error_code=dup_err.code if hasattr(dup_err, 'code') else 'unknown'
+                    )
+                    
+                    # If it's the last attempt, raise the error
+                    if insert_attempt == max_insert_retries - 1:
+                        raise DatabaseException(
+                            f"Failed to create pill due to duplicate key after {max_insert_retries} attempts. "
+                            f"Error: {str(dup_err)}"
+                        ) from dup_err
+                    
+                    # Generate new pill_id for retry
+                    pill_id = self._generate_unique_pill_id()
+                    pill_doc["pill_id"] = pill_id
+                    
+                    self.logger.info(f"Retrying with new pill_id: {pill_id}")
+                    
+                    # Small delay before retry
+                    time.sleep(random.uniform(0.1, 0.3))
             
         except (InvalidPillCategoryException, DuplicatePillPriorityException):
             # Let specific pill exceptions bubble up
             raise
         except ValidationException:
             raise
-        except DuplicateKeyError as err:
-            raise DatabaseException(f"Duplicate pill data: {err}") from err
+        except DatabaseException:
+            # Re-raise database exceptions (already handled above)
+            raise
         except PyMongoError as err:
-            self.logger.error(f"Failed to create pill: {err}")
-            raise DatabaseException(f"Failed to create pill: {err}") from err
+            self.logger.error(f"MongoDB error during pill creation: {err}")
+            raise DatabaseException(f"Database operation failed: {err}") from err
         except Exception as err:
             self.logger.error(f"Unexpected error creating pill: {err}")
             raise DatabaseException(f"Unexpected error creating pill: {err}") from err
@@ -380,7 +451,7 @@ class PillsManager:
             
             if category is not None:
                 if category not in self.valid_categories:
-                    raise ValidationException(
+                    raise InvalidPillCategoryException(
                         f"Invalid category '{category}'. "
                         f"Valid categories: {', '.join(self.valid_categories)}"
                     )
@@ -453,7 +524,7 @@ class PillsManager:
             
             return result
             
-        except ValidationException:
+        except (InvalidPillCategoryException, ValidationException):
             raise
         except PyMongoError as err:
             self.logger.error(f"Failed to search pills: {err}")

@@ -140,24 +140,68 @@ async def create_pill(pill_data: PillCreateData):
         
     except InvalidPillCategoryException as err:
         # Let specific pill exceptions bubble up to global handlers
-        logger.info(f"🔍 DEBUG: Caught InvalidPillCategoryException: {err}")
+        logger.info(f"Invalid category error: {err}")
         raise err
     except (DuplicatePillPriorityException, PillNotFoundException) as err:
         # Let other specific pill exceptions bubble up to global handlers  
-        logger.info(f"🔍 DEBUG: Caught other specific pill exception: {type(err).__name__}: {err}")
+        logger.info(f"Caught specific pill exception: {type(err).__name__}: {err}")
         raise err
     except ValidationException as err:
-        logger.warning(f"🔍 DEBUG: Caught ValidationException: {err}")
         logger.warning(f"Pill creation validation failed: {err}")
         raise HTTPException(status_code=400, detail=str(err))
     except DatabaseException as err:
-        logger.error(f"🔍 DEBUG: Caught DatabaseException: {err}")
         logger.error(f"Pill creation database error: {err}")
-        raise HTTPException(status_code=500, detail=f"Database error: {err}")
+        
+        # Check if it's a duplicate key error and provide more helpful message
+        error_message = str(err)
+        if "duplicate key" in error_message.lower() or "e11000" in error_message.lower():
+            logger.error(
+                "Duplicate key error detected during pill creation",
+                starter=pill_data.starter,
+                category=pill_data.category,
+                priority=pill_data.priority,
+                error_details=error_message
+            )
+            raise HTTPException(
+                status_code=409,  # Conflict instead of 500
+                detail={
+                    "error_code": "PILL_CREATION_CONFLICT",
+                    "message": "Unable to create pill due to a database conflict. This may be due to concurrent requests or internal ID conflicts.",
+                    "suggestion": "Please try again in a moment. If the problem persists, contact support.",
+                    "retry_recommended": True,
+                    "pill_data": {
+                        "starter": pill_data.starter,
+                        "category": pill_data.category,
+                        "priority": pill_data.priority
+                    }
+                }
+            )
+        else:
+            # Other database errors
+            raise HTTPException(
+                status_code=503,  # Service Unavailable
+                detail={
+                    "error_code": "DATABASE_SERVICE_ERROR", 
+                    "message": "Database service is temporarily unavailable",
+                    "suggestion": "Please try again in a few moments",
+                    "retry_recommended": True
+                }
+            )
     except Exception as err:
-        logger.error(f"🔍 DEBUG: Caught generic Exception: {type(err).__name__}: {err}")
         logger.error(f"Unexpected error creating pill: {err}")
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {err}")
+        logger.error(f"Error type: {type(err).__name__}")
+        logger.error(f"Error args: {err.args}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "error_code": "INTERNAL_SERVER_ERROR",
+                "message": "An unexpected error occurred while creating the pill",
+                "suggestion": "Please try again or contact support if the issue persists",
+                "retry_recommended": True
+            }
+        )
 
 
 @router.get("/ordered", response_model=List[PillResponse])
@@ -557,7 +601,7 @@ async def list_pills(
         
     except InvalidPillCategoryException as err:
         # Let specific pill exceptions bubble up to global handlers
-        logger.info(f"🔍 DEBUG: Caught InvalidPillCategoryException in list: {err}")
+        logger.info(f"Invalid category error in list: {err}")
         raise err
     except ValidationException as err:
         logger.warning(f"Pill list validation failed: {err}")
