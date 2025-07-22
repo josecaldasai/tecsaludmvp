@@ -189,3 +189,26 @@ class InvalidPillCategoryException(BaseException):
 class DuplicatePillPriorityException(BaseException):
     """Exception when trying to use a priority that already exists."""
     pass 
+
+
+class InvalidUserIdException(AppException):
+    """Exception raised for invalid user IDs."""
+    pass
+
+
+class MedicalFilenameException(AppException):
+    """Exception raised for invalid medical filename format."""
+    pass
+
+
+class InvalidMedicalFilenameFormatException(MedicalFilenameException):
+    """Exception raised when medical filename doesn't match expected format."""
+    pass
+
+
+class MedicalFilenameParsingException(MedicalFilenameException):
+    """Exception raised when medical filename parsing fails."""
+    pass
+
+
+# Legacy exceptions for backward compatibility 

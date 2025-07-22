@@ -29,7 +29,9 @@ from app.core.v1.exceptions import (
     DatabaseException,
     ValidationException,
     UserIdRequiredException,
-    InvalidUserIdException
+    InvalidUserIdException,
+    InvalidMedicalFilenameFormatException,
+    MedicalFilenameParsingException
 )
 from app.core.v1.validators import DocumentValidator
 from app.core.v1.log_manager import LogManager
@@ -161,6 +163,24 @@ async def upload_document(
         
         return DocumentUploadResponse(**result)
         
+    except (InvalidMedicalFilenameFormatException, MedicalFilenameParsingException) as err:
+        logger.warning(
+            "Medical filename validation failed",
+            filename=file.filename,
+            user_id=data.user_id,
+            error=str(err)
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "INVALID_MEDICAL_FILENAME",
+                "message": "El nombre del archivo no cumple con el formato médico requerido",
+                "filename": file.filename,
+                "detailed_error": str(err),
+                "suggestion": "Revise el formato del nombre del archivo y corrija según las especificaciones médicas",
+                "timestamp": datetime.now().isoformat()
+            }
+        )
     except DocumentProcessorException as err:
         logger.error(f"Document processing failed: {err}")
         raise HTTPException(status_code=500, detail=f"Processing failed: {err}")
@@ -243,6 +263,24 @@ async def upload_documents_batch(
         
         return BatchUploadResponse(**result)
         
+    except (InvalidMedicalFilenameFormatException, MedicalFilenameParsingException) as err:
+        logger.warning(
+            "Medical filename validation failed in batch upload",
+            file_count=len(files),
+            user_id=data.user_id,
+            error=str(err)
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "INVALID_MEDICAL_FILENAME_BATCH",
+                "message": "Uno o más archivos no cumplen con el formato médico requerido",
+                "file_count": len(files),
+                "detailed_error": str(err),
+                "suggestion": "Revise el formato de todos los nombres de archivo y corrija según las especificaciones médicas antes de intentar el batch upload",
+                "timestamp": datetime.now().isoformat()
+            }
+        )
     except DocumentProcessorException as err:
         logger.error(f"Batch processing failed: {err}")
         raise HTTPException(status_code=500, detail=f"Batch processing failed: {err}")

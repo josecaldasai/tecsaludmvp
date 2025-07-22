@@ -88,7 +88,8 @@ def clean_database(mongodb_database):
 @pytest.fixture
 def sample_pdf_file():
     """
-    Crear un archivo PDF de prueba temporal.
+    Crear un archivo PDF de prueba temporal con nombre médico válido.
+    Devuelve una tupla (file_path, medical_filename)
     """
     # Crear contenido PDF básico
     pdf_content = b"""%PDF-1.4
@@ -145,12 +146,15 @@ startxref
 285
 %%EOF"""
     
-    # Crear archivo temporal
+    # Crear archivo temporal con nombre médico válido
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
         temp_file.write(pdf_content)
         temp_file_path = temp_file.name
     
-    yield temp_file_path
+    # Nombre médico válido para usar en tests
+    medical_filename = "4000123456_GARCIA LOPEZ, MARIA_6001467010_CONS.pdf"
+    
+    yield (temp_file_path, medical_filename)
     
     # Limpiar archivo temporal
     try:
@@ -202,7 +206,7 @@ BT
 0 -20 Td
 (Paciente: GARCIA LOPEZ, MARIA) Tj
 0 -20 Td
-(Episodio: 2024010100001) Tj
+(Episodio: 6001467010) Tj
 ET
 endstream
 endobj
@@ -224,7 +228,7 @@ startxref
 %%EOF"""
     
     # Crear archivo temporal con nombre médico
-    filename = "4000123456_GARCIA LOPEZ, MARIA_2024010100001_EMER.pdf"
+    filename = "4000123456_GARCIA LOPEZ, MARIA_6001467010_EMER.pdf"
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
         temp_file.write(pdf_content)
         temp_file_path = temp_file.name
@@ -234,7 +238,7 @@ startxref
         "filename": filename,
         "expediente": "4000123456",
         "nombre_paciente": "GARCIA LOPEZ, MARIA",
-        "numero_episodio": "2024010100001",
+        "numero_episodio": "6001467010",  # Corregido a 10 dígitos
         "categoria": "EMER"
     }
     

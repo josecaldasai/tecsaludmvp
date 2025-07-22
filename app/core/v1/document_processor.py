@@ -14,7 +14,9 @@ from app.core.v1.exceptions import (
     DocumentProcessorException,
     StorageException,
     OCRException,
-    DatabaseException
+    DatabaseException,
+    InvalidMedicalFilenameFormatException,
+    MedicalFilenameParsingException
 )
 from app.core.v1.log_manager import LogManager
 
@@ -54,27 +56,51 @@ class DocumentProcessor:
         Process a single document through the complete workflow.
         
         Args:
-            file_content (bytes): Document content.
-            filename (str): Original filename.
-            description (Optional[str]): Document description.
-            tags (Optional[List[str]]): Document tags.
-            user_id (Optional[str]): User ID who uploaded the document.
+            file_content: Document content as bytes
+            filename: Original filename
+            description: Optional document description
+            tags: Optional list of tags
+            user_id: Optional user ID
             
         Returns:
-            Dict[str, Any]: Processing results.
+            Dict[str, Any]: Processing results
             
         Raises:
-            DocumentProcessorException: If processing fails.
+            InvalidMedicalFilenameFormatException: If medical filename format is invalid
+            MedicalFilenameParsingException: If medical filename parsing fails
+            DocumentProcessorException: If processing fails
         """
+        processing_id = str(uuid.uuid4())
+
         try:
             self.logger.info(
                 "Starting single document processing",
                 filename=filename,
-                size=len(file_content)
+                size=len(file_content),
+                processing_id=processing_id
             )
             
-            # Parse medical information from filename
-            medical_info = self.filename_parser.parse_filename(filename)
+            # STEP 0: Parse and validate medical filename FIRST (strict validation)
+            # This will raise exceptions if the filename format is invalid
+            try:
+                medical_info = self.filename_parser.parse_filename(filename)
+                self.logger.info(
+                    "Medical filename validation successful",
+                    filename=filename,
+                    expediente=medical_info.expediente,
+                    paciente=medical_info.nombre_paciente,
+                    categoria=medical_info.categoria,
+                    processing_id=processing_id
+                )
+            except (InvalidMedicalFilenameFormatException, MedicalFilenameParsingException) as err:
+                self.logger.warning(
+                    "Medical filename validation failed - rejecting document",
+                    filename=filename,
+                    error=str(err),
+                    processing_id=processing_id
+                )
+                # Re-raise the exception to stop processing immediately
+                raise
             
             # Generate unique blob name
             blob_name = f"{uuid.uuid4().hex}_{filename}"
@@ -89,7 +115,8 @@ class DocumentProcessor:
             self.logger.info(
                 "Document uploaded to storage",
                 blob_name=blob_name,
-                upload_result=upload_result
+                upload_result=upload_result,
+                processing_id=processing_id
             )
             
             # Step 2: Perform OCR
@@ -102,12 +129,13 @@ class DocumentProcessor:
                 "OCR processing completed",
                 filename=filename,
                 extracted_text_length=len(ocr_result.get("extracted_text", "")),
-                page_count=ocr_result.get("page_count", 0)
+                page_count=ocr_result.get("page_count", 0),
+                processing_id=processing_id
             )
             
             # Step 3: Prepare document for MongoDB
             document = {
-                "processing_id": str(uuid.uuid4()),
+                "processing_id": processing_id,
                 "filename": filename,
                 "content_type": self._get_content_type(filename),
                 "file_size": len(file_content),
@@ -137,12 +165,13 @@ class DocumentProcessor:
                 "Document processing completed successfully",
                 document_id=document_id,
                 blob_name=blob_name,
-                filename=filename
+                filename=filename,
+                processing_id=processing_id
             )
             
             return {
                 "document_id": document_id,
-                "processing_id": document["processing_id"],
+                "processing_id": processing_id,
                 "filename": filename,
                 "storage_info": document["storage_info"],
                 "ocr_summary": {
@@ -161,19 +190,27 @@ class DocumentProcessor:
                 "medical_info_error": medical_info.error_message
             }
             
+        except (InvalidMedicalFilenameFormatException, MedicalFilenameParsingException):
+            # Medical filename validation errors - propagate immediately
+            # Do NOT save any document or create any records
+            self.logger.info(
+                "Document rejected due to invalid medical filename format",
+                filename=filename,
+                processing_id=processing_id
+            )
+            raise
         except (StorageException, OCRException, DatabaseException) as err:
             self.logger.error(
-                "Document processing failed",
+                "Document processing failed after validation",
                 filename=filename,
-                error=str(err)
+                error=str(err),
+                processing_id=processing_id
             )
             
-            # Try to save error document to MongoDB
+            # For non-medical errors, we still save an error document since filename was valid
             try:
-                medical_info = self.filename_parser.parse_filename(filename)
-                
                 error_document = {
-                    "processing_id": str(uuid.uuid4()),
+                    "processing_id": processing_id,
                     "filename": filename,
                     "content_type": self._get_content_type(filename),
                     "file_size": len(file_content),
@@ -183,7 +220,7 @@ class DocumentProcessor:
                     "processing_status": "error",
                     "description": description,
                     "tags": tags or [],
-                    # Campos médicos al primer nivel para búsquedas eficientes
+                    # Medical info was already validated successfully
                     "expediente": medical_info.expediente,
                     "nombre_paciente": medical_info.nombre_paciente,
                     "numero_episodio": medical_info.numero_episodio,
@@ -195,89 +232,74 @@ class DocumentProcessor:
                 
                 document_id = self.mongodb_manager.save_document(error_document)
                 
-                return {
-                    "document_id": document_id,
-                    "processing_id": error_document["processing_id"],
-                    "filename": filename,
-                    "storage_info": {},
-                    "ocr_summary": {
-                        "text_length": 0,
-                        "page_count": 0,
-                        "table_count": 0
-                    },
-                    "processing_status": "error",
-                    "processing_timestamp": datetime.now().isoformat(),
-                    # Campos médicos al primer nivel para búsquedas eficientes
-                    "expediente": medical_info.expediente,
-                    "nombre_paciente": medical_info.nombre_paciente,
-                    "numero_episodio": medical_info.numero_episodio,
-                    "categoria": medical_info.categoria,
-                    "medical_info_valid": medical_info.is_valid,
-                    "medical_info_error": medical_info.error_message,
-                    "error_message": str(err)
-                }
+                self.logger.info(
+                    "Error document saved",
+                    document_id=document_id,
+                    filename=filename,
+                    processing_id=processing_id
+                )
+                
             except Exception as save_err:
-                self.logger.error(f"Failed to save error document: {save_err}")
-                raise DocumentProcessorException(f"Document processing failed: {err}") from err
+                self.logger.error(
+                    "Failed to save error document",
+                    filename=filename,
+                    save_error=str(save_err),
+                    processing_id=processing_id
+                )
+            
+            raise DocumentProcessorException(f"Document processing failed: {err}") from err
             
         except Exception as err:
             self.logger.error(
                 "Unexpected error in document processing",
                 filename=filename,
-                error=str(err)
+                error=str(err),
+                processing_id=processing_id
             )
             
-            # Try to save error document to MongoDB
+            # For unexpected errors, try to save error document if medical info was parsed
             try:
-                medical_info = self.filename_parser.parse_filename(filename)
-                
-                error_document = {
-                    "processing_id": str(uuid.uuid4()),
-                    "filename": filename,
-                    "content_type": self._get_content_type(filename),
-                    "file_size": len(file_content),
-                    "user_id": user_id,
-                    "storage_info": {},
-                    "extracted_text": "",
-                    "processing_status": "error",
-                    "description": description,
-                    "tags": tags or [],
-                    # Campos médicos al primer nivel para búsquedas eficientes
-                    "expediente": medical_info.expediente,
-                    "nombre_paciente": medical_info.nombre_paciente,
-                    "numero_episodio": medical_info.numero_episodio,
-                    "categoria": medical_info.categoria,
-                    "medical_info_valid": medical_info.is_valid,
-                    "medical_info_error": medical_info.error_message,
-                    "error_message": str(err)
-                }
-                
-                document_id = self.mongodb_manager.save_document(error_document)
-                
-                return {
-                    "document_id": document_id,
-                    "processing_id": error_document["processing_id"],
-                    "filename": filename,
-                    "storage_info": {},
-                    "ocr_summary": {
-                        "text_length": 0,
-                        "page_count": 0,
-                        "table_count": 0
-                    },
-                    "processing_status": "error",
-                    "processing_timestamp": datetime.now().isoformat(),
-                    # Campos médicos al primer nivel para búsquedas eficientes
-                    "expediente": medical_info.expediente,
-                    "nombre_paciente": medical_info.nombre_paciente,
-                    "numero_episodio": medical_info.numero_episodio,
-                    "categoria": medical_info.categoria,
-                    "medical_info_valid": medical_info.is_valid,
-                    "medical_info_error": medical_info.error_message,
-                    "error_message": str(err)
-                }
+                # Only save error document if we got past medical validation
+                if 'medical_info' in locals():
+                    error_document = {
+                        "processing_id": processing_id,
+                        "filename": filename,
+                        "content_type": self._get_content_type(filename),
+                        "file_size": len(file_content),
+                        "user_id": user_id,
+                        "storage_info": {},
+                        "extracted_text": "",
+                        "processing_status": "error",
+                        "description": description,
+                        "tags": tags or [],
+                        # Medical info was already validated successfully
+                        "expediente": medical_info.expediente,
+                        "nombre_paciente": medical_info.nombre_paciente,
+                        "numero_episodio": medical_info.numero_episodio,
+                        "categoria": medical_info.categoria,
+                        "medical_info_valid": medical_info.is_valid,
+                        "medical_info_error": medical_info.error_message,
+                        "error_message": str(err)
+                    }
+                    
+                    document_id = self.mongodb_manager.save_document(error_document)
+                    
+                    self.logger.info(
+                        "Unexpected error document saved",
+                        document_id=document_id,
+                        filename=filename,
+                        processing_id=processing_id
+                    )
+                    
             except Exception as save_err:
-                self.logger.error(f"Failed to save error document: {save_err}")
-                raise DocumentProcessorException(f"Unexpected processing error: {err}") from err
+                self.logger.error(
+                    "Failed to save unexpected error document",
+                    filename=filename,
+                    save_error=str(save_err),
+                    processing_id=processing_id
+                )
+            
+            raise DocumentProcessorException(f"Unexpected processing error: {err}") from err
 
     def process_batch_documents(
         self,
@@ -466,6 +488,7 @@ class DocumentProcessor:
         Process multiple documents in batch with Azure Storage and MongoDB optimizations.
         
         This method uses:
+        - Medical filename validation FIRST (strict validation)
         - Azure Storage bulk upload with parallel processing
         - MongoDB bulk insert for better performance
         - Parallel OCR processing
@@ -479,6 +502,10 @@ class DocumentProcessor:
             
         Returns:
             Dict[str, Any]: Batch processing results with success/failure breakdown.
+            
+        Raises:
+            InvalidMedicalFilenameFormatException: If any filename format is invalid
+            MedicalFilenameParsingException: If any filename parsing fails
         """
         try:
             batch_id = str(uuid.uuid4())
@@ -494,9 +521,51 @@ class DocumentProcessor:
                 max_workers=self.max_workers
             )
             
-            # Step 1: Prepare files for Azure Storage batch upload
-            storage_files = []
+            # STEP 0: Validate ALL medical filenames FIRST (strict validation)
+            # This prevents any processing if ANY filename is invalid
+            validated_files = []
             for index, file_info in enumerate(files):
+                try:
+                    filename = file_info['filename']
+                    self.logger.debug(f"Validating medical filename: {filename}")
+                    
+                    # Parse and validate medical filename (will raise exception if invalid)
+                    medical_info = self.filename_parser.parse_filename(filename)
+                    
+                    # Add medical info to file info for later use
+                    file_info['medical_info'] = medical_info
+                    validated_files.append(file_info)
+                    
+                    self.logger.debug(
+                        f"Medical filename validation successful: {filename}",
+                        expediente=medical_info.expediente,
+                        paciente=medical_info.nombre_paciente,
+                        categoria=medical_info.categoria
+                    )
+                    
+                except (InvalidMedicalFilenameFormatException, MedicalFilenameParsingException) as err:
+                    self.logger.error(
+                        "Medical filename validation failed in batch - rejecting entire batch",
+                        filename=file_info['filename'],
+                        batch_index=index,
+                        batch_id=batch_id,
+                        error=str(err)
+                    )
+                    # Re-raise the exception to stop entire batch processing
+                    raise InvalidMedicalFilenameFormatException(
+                        f"Batch rejected: Invalid medical filename format in file #{index + 1} "
+                        f"'{file_info['filename']}'\n\n{str(err)}"
+                    ) from err
+            
+            self.logger.info(
+                "All medical filenames validated successfully - proceeding with batch processing",
+                batch_id=batch_id,
+                validated_files=len(validated_files)
+            )
+            
+            # Step 1: Prepare files for Azure Storage batch upload (now all validated)
+            storage_files = []
+            for index, file_info in enumerate(validated_files):
                 blob_name = f"{uuid.uuid4().hex}_{file_info['filename']}"
                 storage_files.append({
                     'content': file_info['content'],
@@ -519,9 +588,9 @@ class DocumentProcessor:
                 try:
                     # Obtain correct original file using the stored index
                     original_index = storage_result.get('original_index', i)
-                    if original_index >= len(files):
+                    if original_index >= len(validated_files):
                         original_index = i
-                    original_file = files[original_index]
+                    original_file = validated_files[original_index]
                     
                     if storage_result['status'] != 'success':
                         failed_documents.append({
@@ -532,11 +601,11 @@ class DocumentProcessor:
                         })
                         continue
                     
-                    # Parse medical information from the correct filename
-                    medical_info = self.filename_parser.parse_filename(original_file['filename'])
+                    # Use pre-validated medical information
+                    medical_info = original_file['medical_info']
                     
                     self.logger.debug(
-                        f"Parsed medical info for {original_file['filename']}: "
+                        f"Using pre-validated medical info for {original_file['filename']}: "
                         f"expediente={medical_info.expediente}, "
                         f"paciente={medical_info.nombre_paciente}, "
                         f"valid={medical_info.is_valid}"
@@ -609,7 +678,7 @@ class DocumentProcessor:
                     })
                     
                 except Exception as e:
-                    original_file = files[storage_result.get('original_index', i)]
+                    original_file = validated_files[storage_result.get('original_index', i)]
                     failed_documents.append({
                         "filename": original_file['filename'],
                         "error": str(e),
@@ -654,7 +723,7 @@ class DocumentProcessor:
                     "processing_duration_seconds": round(processing_time, 2),
                     "average_time_per_document": round(processing_time / total_files, 2),
                     "documents_per_second": round(total_files / processing_time, 2) if processing_time > 0 else 0,
-                    "optimization_used": "azure_storage_batch_upload_mongodb_bulk_insert"
+                    "optimization_used": "medical_validation_first_azure_storage_batch_upload_mongodb_bulk_insert"
                 }
             }
             
@@ -666,19 +735,26 @@ class DocumentProcessor:
                 failed_count=failed_count,
                 success_rate=success_rate,
                 processing_status=processing_status,
-                processing_duration=processing_time,
-                optimization="azure_storage_batch_mongodb_bulk"
+                processing_duration=batch_results["processing_summary"]["processing_duration_seconds"]
             )
             
             return batch_results
             
+        except (InvalidMedicalFilenameFormatException, MedicalFilenameParsingException):
+            # Medical filename validation errors - propagate immediately
+            # Do NOT process any files in the batch
+            self.logger.info(
+                "Batch rejected due to invalid medical filename format",
+                batch_id=batch_id if 'batch_id' in locals() else 'unknown'
+            )
+            raise
         except Exception as err:
             self.logger.error(
                 "Optimized batch document processing failed completely",
-                batch_id=batch_id if 'batch_id' in locals() else 'unknown',
-                error=str(err)
+                error=str(err),
+                batch_id=batch_id if 'batch_id' in locals() else 'unknown'
             )
-            raise DocumentProcessorException(f"Optimized batch processing failed: {err}") from err
+            raise DocumentProcessorException(f"Batch processing failed: {err}") from err
 
     def get_document_info(self, document_id: str) -> Dict[str, Any]:
         """
