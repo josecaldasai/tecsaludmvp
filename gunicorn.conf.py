@@ -45,8 +45,8 @@ daemon = False
 pidfile = "/tmp/tecsalud-chatbot-api.pid"
 
 # User and group
-user = os.getenv("API_USER", "nobody")
-group = os.getenv("API_GROUP", "nobody")
+user = os.getenv("API_USER", "appuser")
+group = os.getenv("API_GROUP", "appuser")
 
 # Directories
 tmp_upload_dir = "/tmp"
